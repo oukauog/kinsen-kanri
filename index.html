@@ -443,7 +443,7 @@ function renderMain() {
   }).join('');
 
   var paysHTML = pays.length === 0
-    ? '<div class="no-payments">\u307E\u3060\u8A18;\u9332\u304C\u3042\u308A\u307E\u305B\u3093\u3002</div>'
+    ? '<div class="no-payments">\u307E\u3060\u8A18\u9332\u304C\u3042\u308A\u307E\u305B\u3093\u3002</div>'
     : '<div class="payment-list">' + pays.map(function(p) {
         var payer = group.members.find(function(m){ return m.id === p.payerId; });
         var parts = p.participants.map(function(id){ var m = group.members.find(function(m2){ return m2.id === id; }); return m ? m.name : '?'; }).join('\u30FB');
