@@ -13,8 +13,8 @@
       --gray-300: #d1d5db; --gray-500: #6b7280; --gray-700: #374151; --gray-900: #111827;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif; background: var(--gray-50); color: var(--gray-900); width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; display: flex; flex-direction: column; }
+    html { width: 100%; height: 100%; overflow: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif; background: var(--gray-50); color: var(--gray-900); position: fixed; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; }
     button, a, [onclick] { touch-action: manipulation; }
     .header { background: var(--primary); color: white; padding: 14px 20px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; width: 100%; min-width: 0; }
     .header h1 { font-size: 1.1rem; font-weight: 700; }
