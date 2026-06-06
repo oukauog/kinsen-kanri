@@ -13,8 +13,8 @@
       --gray-300: #d1d5db; --gray-500: #6b7280; --gray-700: #374151; --gray-900: #111827;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html { width: 100%; height: 100%; overflow: hidden; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif; background: var(--gray-50); color: var(--gray-900); width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; }
+    html { width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif; background: var(--gray-50); color: var(--gray-900); width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; display: flex; flex-direction: column; }
     button, a, [onclick] { touch-action: manipulation; }
     .header { background: var(--primary); color: white; padding: 14px 20px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; width: 100%; min-width: 0; }
     .header h1 { font-size: 1.1rem; font-weight: 700; }
@@ -156,13 +156,14 @@
       .balance-amount { font-size: 1.1rem; }
 
       /* 支払いリスト */
-      .payment-item { padding: 9px 11px; gap: 8px; }
-      .payment-date { font-size: 0.7rem; min-width: 56px; }
+      .payment-item { padding: 8px 10px; gap: 6px; }
+      .payment-date { font-size: 0.68rem; min-width: 48px; }
       .payment-payer { font-size: 0.85rem; }
       .payment-memo { font-size: 0.75rem; }
       .payment-participants { font-size: 0.7rem; }
-      .payment-total { font-size: 0.92rem; }
-      .payment-per { font-size: 0.7rem; }
+      .payment-total { font-size: 0.88rem; }
+      .payment-per { font-size: 0.68rem; }
+      .btn-edit, .btn-delete { padding: 2px 4px; font-size: 0.9rem; }
 
       /* 精算リスト */
       .settlement-item { padding: 11px 12px; font-size: 0.85rem; gap: 7px; }
