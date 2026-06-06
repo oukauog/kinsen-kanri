@@ -121,12 +121,12 @@
 
     @media (max-width: 640px) {
       .menu-btn { display: block; }
-      .header { padding: 10px 12px; gap: 8px; flex-wrap: nowrap; overflow: hidden; }
+      .header { padding: 10px 12px; gap: 6px; flex-wrap: nowrap; overflow: hidden; }
       .header > span { flex-shrink: 0; }
-      .header h1 { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-      .sync-bar { gap: 6px; flex-shrink: 0; }
+      .header h1 { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+      .sync-bar { gap: 4px; flex-shrink: 0; max-width: 110px; overflow: hidden; }
       #syncLabel { display: none; }
-      .sync-code-badge { font-size: 0.75rem; padding: 3px 8px; white-space: nowrap; }
+      .sync-code-badge { font-size: 0.7rem; padding: 2px 6px; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
 
       /* サイドバーをスライドオーバーレイに */
       .sidebar {
@@ -143,11 +143,12 @@
 
       /* メインコンテンツが全幅を使う */
       .layout { width: 100%; overflow-x: hidden; }
-      .main { padding: 14px; width: 100%; overflow-x: hidden; }
-      .group-header { margin-bottom: 14px; gap: 6px; flex-direction: column; align-items: flex-start; }
-      .group-title { font-size: 1.15rem; }
-      .group-actions { flex-wrap: wrap; width: 100%; }
-      .group-actions .btn { padding: 5px 8px; font-size: 0.72rem; }
+      .main { padding: 12px; width: 100%; overflow-x: hidden; box-sizing: border-box; }
+      .group-header { margin-bottom: 12px; gap: 6px; flex-direction: column; align-items: stretch; }
+      .group-title { font-size: 1.1rem; }
+      .group-actions { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; box-sizing: border-box; }
+      .group-actions > .btn:first-child { width: 100%; }
+      .group-actions > .btn:not(:first-child) { flex: 1; min-width: 0; padding: 6px 4px; font-size: 0.7rem; text-align: center; }
 
       /* バランスカード */
       .balance-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; margin-bottom: 18px; }
@@ -156,14 +157,16 @@
       .balance-amount { font-size: 1.1rem; }
 
       /* 支払いリスト */
-      .payment-item { padding: 8px 10px; gap: 6px; }
-      .payment-date { font-size: 0.68rem; min-width: 48px; }
-      .payment-payer { font-size: 0.85rem; }
-      .payment-memo { font-size: 0.75rem; }
-      .payment-participants { font-size: 0.7rem; }
-      .payment-total { font-size: 0.88rem; }
-      .payment-per { font-size: 0.68rem; }
-      .btn-edit, .btn-delete { padding: 2px 4px; font-size: 0.9rem; }
+      .payment-item { padding: 8px 8px; gap: 4px; box-sizing: border-box; width: 100%; }
+      .payment-date { font-size: 0.65rem; min-width: 44px; flex-shrink: 0; }
+      .payment-info { flex: 1; min-width: 0; overflow: hidden; }
+      .payment-payer { font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .payment-memo { font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .payment-participants { font-size: 0.65rem; }
+      .payment-amounts { flex-shrink: 0; }
+      .payment-total { font-size: 0.82rem; }
+      .payment-per { font-size: 0.65rem; }
+      .btn-edit, .btn-delete { padding: 3px 6px; font-size: 0.85rem; flex-shrink: 0; }
 
       /* 精算リスト */
       .settlement-item { padding: 11px 12px; font-size: 0.85rem; gap: 7px; }
