@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>金銭管理ツール</title>
+  <style>
+    :root {
+      --primary: #4f46e5; --primary-light: #e0e7ff;
+      --red: #ef4444; --red-light: #fee2e2;
+      --green: #22c55e; --green-light: #dcfce7;
+      --gray-50: #f9fafb; --gray-100: #f3f4f6; --gray-200: #e5e7eb;
+      --gray-300: #d1d5db; --gray-500: #6b7280; --gray-700: #374151; --gray-900: #111827;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { width: 100%; height: 100%; overflow: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif; background: var(--gray-50); color: var(--gray-900); width: 100%; height: 100%; overflow: hidden; touch-action: pan-y; display: flex; flex-direction: column; }
+    .header { background: var(--primary); color: white; padding: 14px 20px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; width: 100%; min-width: 0; }
+    .header h1 { font-size: 1.1rem; font-weight: 700; }
+    .layout { display: flex; flex: 1; overflow: hidden; width: 100%; min-width: 0; }
+    .sidebar { width: 210px; background: white; border-right: 1px solid var(--gray-200); display: flex; flex-direction: column; flex-shrink: 0; }
+    .sidebar-label { padding: 14px 16px 10px; font-size: 0.7rem; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.08em; }
+    .group-list { flex: 1; overflow-y: auto; }
+    .group-item { padding: 11px 16px; cursor: pointer; font-size: 0.9rem; color: var(--gray-700); border-left: 3px solid transparent; transition: background 0.1s; }
+    .group-item:hover { background: var(--gray-50); }
+    .group-item.active { background: var(--primary-light); border-left-color: var(--primary); color: var(--primary); font-weight: 600; }
+    .btn-add-group { margin: 12px; padding: 10px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 0.875rem; font-weight: 500; }
+    .btn-add-group:hover { background: #4338ca; }
+    .main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 28px; min-width: 0; }
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--gray-500); text-align: center; gap: 12px; }
+    .empty-state .icon { font-size: 3rem; }
+    .empty-state h2 { font-size: 1rem; font-weight: 600; color: var(--gray-700); }
+    .empty-state p { font-size: 0.875rem; line-height: 1.6; }
+    .group-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
+    .group-title { font-size: 1.4rem; font-weight: 700; }
+    .group-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: opacity 0.1s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-secondary { background: white; color: var(--gray-700); border: 1px solid var(--gray-300); }
+    .btn-danger { background: var(--red); color: white; }
+    .btn-sm { padding: 5px 10px; font-size: 0.8rem; }
+    .section-title { font-size: 0.75rem; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+    .balance-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 32px; }
+    .balance-card { background: white; border-radius: 12px; padding: 18px 14px 14px; border: 2px solid var(--gray-200); text-align: center; position: relative; }
+    .balance-card.negative { border-color: var(--red); background: var(--red-light); }
+    .balance-card.positive { border-color: var(--green); background: var(--green-light); }
+    .balance-name { font-size: 0.9rem; font-weight: 600; margin-bottom: 8px; }
+    .balance-amount { font-size: 1.3rem; font-weight: 700; }
+    .balance-card.negative .balance-amount { color: var(--red); }
+    .balance-card.positive .balance-amount { color: var(--green); }
+    .balance-label { font-size: 0.7rem; margin-top: 4px; color: var(--gray-500); }
+    .next-badge { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); background: var(--red); color: white; font-size: 0.65rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+    .payment-list { display: flex; flex-direction: column; gap: 8px; }
+    .payment-item { background: white; border: 1px solid var(--gray-200); border-radius: 10px; padding: 13px 16px; display: flex; align-items: center; gap: 14px; }
+    .payment-date { font-size: 0.75rem; color: var(--gray-500); min-width: 75px; }
+    .payment-info { flex: 1; min-width: 0; }
+    .payment-payer { font-size: 0.9rem; font-weight: 600; }
+    .payment-memo { font-size: 0.8rem; color: var(--gray-500); margin-top: 1px; }
+    .payment-participants { font-size: 0.75rem; color: var(--gray-500); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .payment-amounts { text-align: right; flex-shrink: 0; }
+    .payment-total { font-size: 1rem; font-weight: 700; }
+    .payment-per { font-size: 0.75rem; color: var(--gray-500); }
+    .btn-delete { background: none; border: none; cursor: pointer; color: var(--gray-300); padding: 4px 6px; font-size: 1rem; flex-shrink: 0; }
+    .btn-delete:hover { color: var(--red); }
+    .btn-edit { background: none; border: none; cursor: pointer; color: var(--gray-300); padding: 4px 6px; font-size: 1rem; flex-shrink: 0; }
+    .btn-edit:hover { color: var(--primary); }
+    .no-payments { color: var(--gray-500); font-size: 0.875rem; padding: 16px 0; }
+    .settlement-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+    .settlement-item { display: flex; align-items: center; gap: 10px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 10px; padding: 14px 16px; font-size: 0.9rem; }
+    .settlement-arrow { color: var(--gray-400); font-size: 1.1rem; }
+    .settlement-from { font-weight: 600; color: var(--red); }
+    .settlement-to { font-weight: 600; color: var(--green); }
+    .settlement-amount { margin-left: auto; font-weight: 700; font-size: 1rem; }
+    .settlement-empty { color: var(--gray-500); font-size: 0.9rem; text-align: center; padding: 20px 0; }
+    .import-note { font-size: 0.8rem; color: var(--gray-500); line-height: 1.6; margin-bottom: 12px; }
+    .import-feedback { font-size: 0.875rem; min-height: 1.4em; margin: 6px 0; }
+    .export-btns { display: flex; flex-direction: column; gap: 10px; }
+    .export-btn-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--gray-200); border-radius: 10px; cursor: pointer; background: white; text-align: left; width: 100%; transition: background 0.1s; }
+    .export-btn-row:hover { background: var(--gray-50); }
+    .export-btn-icon { font-size: 1.4rem; }
+    .export-btn-label { font-size: 0.9rem; font-weight: 600; display: block; }
+    .export-btn-desc { font-size: 0.78rem; color: var(--gray-500); margin-top: 2px; display: block; }
+
+    .sync-bar { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 0.8rem; }
+    .sync-code-badge { background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 999px; cursor: pointer; font-family: monospace; font-size: 0.85rem; letter-spacing: 0.05em; }
+    .sync-code-badge:hover { background: rgba(255,255,255,0.3); }
+    .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #86efac; flex-shrink: 0; }
+    .sync-dot.off { background: rgba(255,255,255,0.3); }
+    .sync-dot.syncing { animation: pulse 1s infinite; background: #fde68a; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .sync-modal-code { font-family: monospace; font-size: 1.4rem; font-weight: 700; letter-spacing: 0.1em; text-align: center; padding: 16px; background: var(--gray-50); border-radius: 10px; border: 2px dashed var(--gray-300); margin: 12px 0; cursor: pointer; user-select: all; }
+    .sync-modal-code:hover { border-color: var(--primary); }
+    .sync-status-text { font-size: 0.75rem; color: var(--gray-500); text-align: center; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: white; border-radius: 16px; padding: 24px; width: 100%; max-width: 460px; margin: 20px; max-height: 90vh; overflow-y: auto; }
+    .modal-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 20px; }
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 5px; color: var(--gray-700); }
+    .form-input { width: 100%; padding: 9px 12px; border: 1px solid var(--gray-300); border-radius: 8px; font-size: 0.9rem; font-family: inherit; outline: none; transition: border-color 0.15s, box-shadow 0.15s; }
+    .form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { padding: 6px 14px; border: 1.5px solid var(--gray-300); border-radius: 999px; cursor: pointer; font-size: 0.875rem; user-select: none; transition: all 0.1s; color: var(--gray-700); }
+    .chip.selected { background: var(--primary-light); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+    .chip-hint { font-size: 0.75rem; color: var(--gray-500); margin-bottom: 6px; }
+    .member-manage-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+    .member-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--gray-50); border-radius: 8px; font-size: 0.9rem; }
+    .member-row-name { flex: 1; }
+    .member-row-del { background: none; border: none; cursor: pointer; color: var(--gray-400); font-size: 0.9rem; padding: 2px 4px; }
+    .member-row-del:hover { color: var(--red); }
+    .add-row { display: flex; gap: 8px; }
+    .add-row input { flex: 1; }
+    .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--gray-100); }
+    .modal-footer-left { flex: 1; }
+
+    /* ── モバイル ── */
+    .menu-btn { display: none; background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; padding: 2px 6px; line-height: 1; flex-shrink: 0; }
+    .sidebar-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 49; }
+
+    @media (max-width: 640px) {
+      .menu-btn { display: block; }
+      .header { padding: 10px 12px; gap: 8px; flex-wrap: nowrap; overflow: hidden; }
+      .header > span { flex-shrink: 0; }
+      .header h1 { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+      .sync-bar { gap: 6px; flex-shrink: 0; }
+      #syncLabel { display: none; }
+      .sync-code-badge { font-size: 0.75rem; padding: 3px 8px; white-space: nowrap; }
+
+      /* サイドバーをスライドオーバーレイに */
+      .sidebar {
+        position: fixed;
+        top: 0; left: 0; bottom: 0;
+        z-index: 50;
+        width: 230px;
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+        box-shadow: 3px 0 16px rgba(0,0,0,0.18);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-backdrop.open { display: block; }
+
+      /* メインコンテンツが全幅を使う */
+      .layout { width: 100%; overflow-x: hidden; }
+      .main { padding: 14px; width: 100%; overflow-x: hidden; }
+      .group-header { margin-bottom: 14px; gap: 8px; }
+      .group-title { font-size: 1.15rem; }
+      .group-actions .btn { padding: 6px 11px; font-size: 0.8rem; }
+
+      /* バランスカード */
+      .balance-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-bottom: 18px; }
+      .balance-card { padding: 14px 10px 10px; }
+      .balance-name { font-size: 0.82rem; }
+      .balance-amount { font-size: 1.1rem; }
+
+      /* 支払いリスト */
+      .payment-item { padding: 9px 11px; gap: 8px; }
+      .payment-date { font-size: 0.7rem; min-width: 56px; }
+      .payment-payer { font-size: 0.85rem; }
+      .payment-memo { font-size: 0.75rem; }
+      .payment-participants { font-size: 0.7rem; }
+      .payment-total { font-size: 0.92rem; }
+      .payment-per { font-size: 0.7rem; }
+
+      /* 精算リスト */
+      .settlement-item { padding: 11px 12px; font-size: 0.85rem; gap: 7px; }
+      .settlement-amount { font-size: 0.92rem; }
+
+      /* セクションタイトル */
+      .section-title { font-size: 0.68rem; }
+
+      /* 全要素が画面幅を超えないように */
+      .group-header, .balance-grid, .payment-list, .settlement-list,
+      .payment-item, .settlement-item, .balance-card {
+        max-width: 100%;
+      }
+      .payment-participants { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <button class="menu-btn" onclick="toggleSidebar()" aria-label="メニュー">&#x2630;</button>
+  <span style="font-size:1.25rem">&#x1F4B0;</span>
+  <h1>&#x91D1;&#x92AD;&#x7BA1;&#x7406;&#x30C4;&#x30FC;&#x30EB;</h1>
+  <div class="sync-bar" id="syncBar">
+    <div class="sync-dot off" id="syncDot"></div>
+    <span id="syncLabel" style="opacity:0.7">&#x540C;&#x671F;&#x306A;&#x3057;</span>
+    <span class="sync-code-badge" id="syncCodeBadge" onclick="openSyncModal()" title="&#x540C;&#x671F;&#x8A2D;&#x5B9A;">&#x2601; &#x8A2D;&#x5B9A;</span>
+  </div>
+</div>
+
+<div class="sidebar-backdrop" onclick="toggleSidebar()"></div>
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-label">&#x30B0;&#x30EB;&#x30FC;&#x30D7;</div>
+    <div class="group-list" id="groupList"></div>
+    <button class="btn-add-group" onclick="openNewGroupModal()">&#xFF0B; &#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x3092;&#x4F5C;&#x6210;</button>
+  </div>
+  <div class="main" id="main"></div>
+</div>
+
+<!-- Modal: &#x65B0;&#x30B0;&#x30EB;&#x30FC;&#x30D7; -->
+<div class="modal-overlay" id="newGroupModal">
+  <div class="modal">
+    <div class="modal-title">&#x65B0;&#x3057;&#x3044;&#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x3092;&#x4F5C;&#x6210;</div>
+    <div class="form-group">
+      <label class="form-label">&#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x540D;</label>
+      <input type="text" class="form-input" id="newGroupName" placeholder="&#x4F8B;: &#x98F2;&#x307F;&#x4EF2;&#x9593;&#x3001;&#x4F1A;&#x793E;&#x306E;&#x540C;&#x671F;" onkeydown="if(event.key==='Enter')document.getElementById('newMemberInput').focus()">
+    </div>
+    <div class="form-group">
+      <label class="form-label">&#x30E1;&#x30F3;&#x30D0;&#x30FC;&#xFF082;&#x4EBA;&#x4EE5;&#x4E0A;&#xFF09;</label>
+      <div class="member-manage-list" id="newMemberList"></div>
+      <div class="add-row">
+        <input type="text" class="form-input" id="newMemberInput" placeholder="&#x540D;&#x524D;&#x3092;&#x5165;&#x529B;&#x3057;&#x3066;&#x8FFD;&#x52A0;" onkeydown="if(event.key==='Enter')addNewMember()">
+        <button class="btn btn-secondary" onclick="addNewMember()">&#x8FFD;&#x52A0;</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('newGroupModal')">&#x30AD;&#x30E3;&#x30F3;&#x30BB;&#x30EB;</button>
+      <button class="btn btn-primary" onclick="createGroup()">&#x4F5C;&#x6210;</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: &#x652F;&#x6255;&#x3044;&#x3092;&#x8A18;&#x9332; -->
+<div class="modal-overlay" id="paymentModal">
+  <div class="modal">
+    <div class="modal-title">&#x1F4B3; &#x652F;&#x6255;&#x3044;&#x3092;&#x8A18;&#x9332;</div>
+    <div class="form-group">
+      <label class="form-label">&#x65E5;&#x4ED8;</label>
+      <input type="date" class="form-input" id="payDate">
+    </div>
+    <div class="form-group">
+      <label class="form-label">&#x30E1;&#x30E2;&#xFF08;&#x4EFB;&#x610F;&#xFF09;</label>
+      <input type="text" class="form-input" id="payMemo" placeholder="&#x4F8B;: &#x5C45;&#x9152;&#x5C4B;&#x3001;&#x30E9;&#x30F3;&#x30C1;">
+    </div>
+    <div class="form-group">
+      <label class="form-label">&#x652F;&#x6255;&#x3063;&#x305F;&#x4EBA;</label>
+      <select class="form-input" id="payPayer"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">&#x5408;&#x8A08;&#x91D1;&#x984D;&#xFF08;&#x5186;&#xFF09;</label>
+      <input type="number" class="form-input" id="payAmount" placeholder="0" min="0" step="1">
+    </div>
+    <div class="form-group">
+      <label class="form-label">&#x5272;&#x308A;&#x52D5;&#x3059;&#x308B;&#x4EBA;</label>
+      <div class="chip-hint">&#x30BF;&#x30C3;&#x30D7;&#x3067;&#x9078;&#x629E;&#x30FB;&#x89E3;&#x9664;&#x3002;&#x652F;&#x6255;&#x3063;&#x305F;&#x4EBA;&#x306F;&#x81EA;&#x52D5;&#x3067;&#x542B;&#x307E;&#x308C;&#x307E;&#x3059;&#x3002;</div>
+      <div class="chips" id="payParticipants"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('paymentModal')">&#x30AD;&#x30E3;&#x30F3;&#x30BB;&#x30EB;</button>
+      <button class="btn btn-primary" onclick="recordPayment()">&#x8A18;&#x9332;&#x3059;&#x308B;</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: &#x8AAD;&#x307F;&#x8FBC;&#x307F; -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-title">&#x1F4C2; &#x30C7;&#x30FC;&#x30BF;&#x3092;&#x8AAD;&#x307F;&#x8FBC;&#x3080;</div>
+    <p class="import-note">
+      Excel&#xFF08;.xlsx&#xFF09;&#x307E;&#x305F;&#x306F;CSV&#x30D5;&#x30A1;&#x30A4;&#x30EB;&#x304B;&#x3089;&#x652F;&#x6255;&#x3044;&#x8A18;&#x9332;&#x3092;&#x53D6;&#x308A;&#x8FBC;&#x307F;&#x307E;&#x3059;&#x3002;<br>
+      &#x5217;&#x306E;&#x9806;&#x5E8F;: <strong>&#x65E5;&#x4ED8; / &#x30E1;&#x30E2; / &#x652F;&#x6255;&#x3063;&#x305F;&#x4EBA; / &#x91D1;&#x984D; / &#x53C2;&#x52A0;&#x8005;&#xFF08;&#x30AB;&#x30F3;&#x30DE;&#x533A;&#x5207;&#x308A;&#xFF09;</strong><br>
+      &#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x306B;&#x306A;&#x3044;&#x540D;&#x524D;&#x306F;&#x81EA;&#x52D5;&#x3067;&#x30E1;&#x30F3;&#x30D0;&#x30FC;&#x306B;&#x8FFD;&#x52A0;&#x3057;&#x307E;&#x3059;&#x3002;
+    </p>
+    <div class="form-group">
+      <button class="btn btn-secondary btn-sm" onclick="downloadTemplate()" style="margin-bottom:12px">
+        &#x1F4C4; &#x30C6;&#x30F3;&#x30D7;&#x30EC;&#x30FC;&#x30C8;&#x3092;&#x30C0;&#x30A6;&#x30F3;&#x30ED;&#x30FC;&#x30C9;
+      </button>
+      <label class="form-label">&#x30D5;&#x30A1;&#x30A4;&#x30EB;&#x3092;&#x9078;&#x629E;&#xFF08;.xlsx / .csv&#xFF09;</label>
+      <input type="file" class="form-input" id="importFile" accept=".xlsx,.xls,.csv">
+    </div>
+    <div class="import-feedback" id="importFeedback"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('importModal')">&#x30AD;&#x30E3;&#x30F3;&#x30BB;&#x30EB;</button>
+      <button class="btn btn-primary" onclick="handleImport()">&#x30A4;&#x30F3;&#x30DD;&#x30FC;&#x30C8;</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: CSV&#x51FA;&#x529B; -->
+<div class="modal-overlay" id="exportModal">
+  <div class="modal">
+    <div class="modal-title">&#x1F4E4; CSV&#x51FA;&#x529B;</div>
+    <div class="export-btns" id="exportBtns"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('exportModal')">&#x9589;&#x3058;&#x308B;</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: &#x6E05;&#x7B97; -->
+<div class="modal-overlay" id="settlementModal">
+  <div class="modal">
+    <div class="modal-title">&#x1F9FE; &#x6E05;&#x7B97;</div>
+    <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:16px">
+      &#x4EE5;&#x4E0B;&#x306E;&#x652F;&#x6255;&#x3044;&#x3092;&#x884C;&#x3046;&#x3068;&#x8CB8;&#x3057;&#x501F;&#x308A;&#x304C;&#x30C1;&#x30E3;&#x30E9;&#x306B;&#x306A;&#x308A;&#x307E;&#x3059;&#x3002;
+    </p>
+    <div id="settlementContent"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('settlementModal')">&#x9589;&#x3058;&#x308B;</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: &#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x8A2D;&#x5B9A; -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <div class="modal-title">&#x2699;&#xFE0F; &#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x8A2D;&#x5B9A;</div>
+    <div class="form-group">
+      <label class="form-label">&#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x540D;</label>
+      <input type="text" class="form-input" id="editGroupName">
+    </div>
+    <div class="form-group">
+      <label class="form-label">&#x30E1;&#x30F3;&#x30D0;&#x30FC;</label>
+      <div class="member-manage-list" id="editMemberList"></div>
+      <div class="add-row">
+        <input type="text" class="form-input" id="editMemberInput" placeholder="&#x540D;&#x524D;&#x3092;&#x5165;&#x529B;&#x3057;&#x3066;&#x8FFD;&#x52A0;" onkeydown="if(event.key==='Enter')addEditMember()">
+        <button class="btn btn-secondary" onclick="addEditMember()">&#x8FFD;&#x52A0;</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-footer-left">
+        <button class="btn btn-danger btn-sm" onclick="deleteGroup()">&#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x3092;&#x524A;&#x9664;</button>
+      </div>
+      <button class="btn btn-secondary" onclick="closeModal('settingsModal')">&#x30AD;&#x30E3;&#x30F3;&#x30BB;&#x30EB;</button>
+      <button class="btn btn-primary" onclick="saveSettings()">&#x4FDD;&#x5B58;</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Modal: グループ名変更 -->
+<div class="modal-overlay" id="renameGroupModal">
+  <div class="modal">
+    <div class="modal-title">&#x270F;&#xFE0F; &#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x540D;&#x3092;&#x5909;&#x66F4;</div>
+    <div class="form-group">
+      <label class="form-label">&#x65B0;&#x3057;&#x3044;&#x30B0;&#x30EB;&#x30FC;&#x30D7;&#x540D;</label>
+      <input type="text" class="form-input" id="renameGroupInput" onkeydown="if(event.key==='Enter')saveGroupRename()">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('renameGroupModal')">&#x30AD;&#x30E3;&#x30F3;&#x30BB;&#x30EB;</button>
+      <button class="btn btn-primary" onclick="saveGroupRename()">&#x5909;&#x66F4;</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Modal: 同期設定 -->
+<div class="modal-overlay" id="syncModal">
+  <div class="modal">
+    <div class="modal-title">&#x2601; &#x540C;&#x671F;&#x8A2D;&#x5B9A;</div>
+    <div id="syncModalContent"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('syncModal')">&#x9589;&#x3058;&#x308B;</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var db = { groups: [], payments: [], deletedGroupIds: [], deletedPaymentIds: [] };
+var currentGroupId = null;
+var newMembers = [];
+var editingPaymentId = null;
+var editMembers = [];
+
+function load() {
+  try { var s = localStorage.getItem('warikancho_v1'); if (s) db = JSON.parse(s); } catch(e) {}
+  if (!db.deletedGroupIds) db.deletedGroupIds = [];
+  if (!db.deletedPaymentIds) db.deletedPaymentIds = [];
+}
+function save() { localStorage.setItem('warikancho_v1', JSON.stringify(db)); if (roomCode) pushToFirebase(); }
+
+function uid() { return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
+function today() { return new Date().toISOString().slice(0,10); }
+function money(n) { return '\u00A5' + Math.abs(Math.round(n)).toLocaleString(); }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function getGroup(id) { return db.groups.find(function(g){ return g.id === (id !== undefined ? id : currentGroupId); }); }
+
+function calcBalances(groupId) {
+  var group = getGroup(groupId);
+  if (!group) return {};
+  var bal = {};
+  group.members.forEach(function(m){ bal[m.id] = 0; });
+  db.payments.filter(function(p){ return p.groupId === groupId; }).forEach(function(p) {
+    var n = p.participants.length;
+    if (n === 0) return;
+    var share = p.amount / n;
+    p.participants.forEach(function(mid) {
+      if (!(mid in bal)) bal[mid] = 0;
+      if (mid === p.payerId) bal[mid] += p.amount - share;
+      else bal[mid] -= share;
+    });
+  });
+  return bal;
+}
+
+function renderSidebar() {
+  var el = document.getElementById('groupList');
+  if (db.groups.length === 0) {
+    el.innerHTML = '<div style="padding:12px 16px;font-size:0.8rem;color:var(--gray-500)">\u30B0\u30EB\u30FC\u30D7\u304C\u307E\u3060\u3042\u308A\u307E\u305B\u3093</div>';
+    return;
+  }
+  el.innerHTML = db.groups.map(function(g) {
+    return '<div class="group-item' + (g.id === currentGroupId ? ' active' : '') + '" onclick="selectGroup(&apos;' + g.id + '&apos;)">' + esc(g.name) + '</div>';
+  }).join('');
+}
+
+function renderMain() {
+  var main = document.getElementById('main');
+  if (!currentGroupId) {
+    main.innerHTML = '<div class="empty-state"><div class="icon">&#x1F465;</div><h2>\u30B0\u30EB\u30FC\u30D7\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044</h2><p>\u5DE6\u30B5\u30A4\u30C9\u30D0\u30FC\u304B\u3089\u30B0\u30EB\u30FC\u30D7\u3092\u9078\u3076\u304B\u3001<br>\u65B0\u3057\u3044\u30B0\u30EB\u30FC\u30D7\u3092\u4F5C\u6210\u3057\u3066\u304F\u3060\u3055\u3044</p></div>';
+    return;
+  }
+  var group = getGroup(currentGroupId);
+  if (!group) return;
+  var bal = calcBalances(currentGroupId);
+  var sorted = group.members.slice().sort(function(a,b){ return (bal[a.id]||0)-(bal[b.id]||0); });
+  var nextMember = sorted.find(function(m){ return (bal[m.id]||0) < -0.5; });
+  var nextId = nextMember ? nextMember.id : null;
+  var pays = db.payments.filter(function(p){ return p.groupId === currentGroupId; })
+    .sort(function(a,b){ return b.date.localeCompare(a.date) || b.createdAt - a.createdAt; });
+
+  var balHTML = sorted.map(function(m) {
+    var b = bal[m.id] || 0;
+    var cls = b > 0.5 ? 'positive' : b < -0.5 ? 'negative' : '';
+    var isNext = m.id === nextId;
+    var label = b > 0.5 ? '\u591A\u304F\u6255\u3063\u3066\u3044\u308B' : b < -0.5 ? '\u501F\u308A\u304C\u3042\u308B' : '\u307B\u307C\u5747\u7B49';
+    var sign = b >= 0 ? '+' : '\u2212';
+    return '<div class="balance-card ' + cls + '">' +
+      (isNext ? '<div class="next-badge">\u6B21\u306F\u6255\u3046\u756A\uFF1F</div>' : '') +
+      '<div class="balance-name">' + esc(m.name) + '</div>' +
+      '<div class="balance-amount">' + sign + money(b) + '</div>' +
+      '<div class="balance-label">' + label + '</div></div>';
+  }).join('');
+
+  var paysHTML = pays.length === 0
+    ? '<div class="no-payments">\u307E\u3060\u8A18;\u9332\u304C\u3042\u308A\u307E\u305B\u3093\u3002</div>'
+    : '<div class="payment-list">' + pays.map(function(p) {
+        var payer = group.members.find(function(m){ return m.id === p.payerId; });
+        var parts = p.participants.map(function(id){ var m = group.members.find(function(m2){ return m2.id === id; }); return m ? m.name : '?'; }).join('\u30FB');
+        var per = p.participants.length > 0 ? p.amount / p.participants.length : 0;
+        return '<div class="payment-item">' +
+          '<div class="payment-date">' + p.date + '</div>' +
+          '<div class="payment-info">' +
+            '<div class="payment-payer">' + esc(p.memo || ('\u652F\u6255\u3044')) + '</div>' +
+            '<div class="payment-memo">' + esc(payer ? payer.name : '?') + ' \u304C\u652F\u6255\u3044</div>' +
+          '</div>' +
+          '<div class="payment-amounts"><div class="payment-total">' + money(p.amount) + '</div><div class="payment-per">1\u4EBA ' + money(per) + '</div></div>' +
+          '<button class="btn-edit" onclick="openEditPayModal(&apos;' + p.id + '&apos;)" title="\u7DE8\u96C6">&#x270F;</button>' +
+          '<button class="btn-delete" onclick="deletePay(&apos;' + p.id + '&apos;)" title="\u524A\u9664">&#x2715;</button>' +
+        '</div>';
+      }).join('') + '</div>';
+
+  main.innerHTML =
+    '<div class="group-header">' +
+      '<div class="group-title">' + esc(group.name) + '</div>' +
+      '<div class="group-actions">' +
+        '<button class="btn btn-primary" onclick="openPaymentModal()">&#xFF0B; \u652F\u6255\u3044\u3092\u8A18\u9332</button>' +
+        '<button class="btn btn-secondary" onclick="openSettlement()">\u6E05\u7B97</button>' +
+        '<button class="btn btn-secondary" onclick="openImportModal()">\u8AAD\u307F\u8FBC\u307F</button>' +
+        '<button class="btn btn-secondary" onclick="openExportModal()">CSV\u51FA\u529B</button>' +
+        '<button class="btn btn-secondary" onclick="openSettings()">\u8A2D\u5B9A</button>' +
+      '</div></div>' +
+    '<div class="section-title">\u6B8B\u9AD8 \u2014 \u30DE\u30A4\u30CA\u30B9\u304C\u5927\u304D\u3044\u4EBA\u304C\u6B21\u306E\u652F\u6255\u3044\u5019\u88DC</div>' +
+    '<div class="balance-grid">' + balHTML + '</div>' +
+    '<div class="section-title">\u652F\u6255\u3044\u5C65\u6B74</div>' + paysHTML;
+}
+
+function render() { renderSidebar(); renderMain(); }
+
+function calcSettlement(groupId) {
+  var group = getGroup(groupId);
+  if (!group) return [];
+  var bal = calcBalances(groupId);
+  var debtors = group.members.filter(function(m){ return (bal[m.id]||0) < -0.5; })
+    .map(function(m){ return { name: m.name, amount: -(bal[m.id]) }; })
+    .sort(function(a,b){ return b.amount - a.amount; });
+  var creditors = group.members.filter(function(m){ return (bal[m.id]||0) > 0.5; })
+    .map(function(m){ return { name: m.name, amount: bal[m.id] }; })
+    .sort(function(a,b){ return b.amount - a.amount; });
+  var txns = [], di = 0, ci = 0;
+  while (di < debtors.length && ci < creditors.length) {
+    var d = debtors[di], c = creditors[ci];
+    var amt = Math.min(d.amount, c.amount);
+    txns.push({ from: d.name, to: c.name, amount: Math.round(amt) });
+    d.amount -= amt; c.amount -= amt;
+    if (d.amount < 0.5) di++;
+    if (c.amount < 0.5) ci++;
+  }
+  return txns;
+}
+
+function openSettlement() {
+  var txns = calcSettlement(currentGroupId);
+  var el = document.getElementById('settlementContent');
+  if (txns.length === 0) {
+    el.innerHTML = '<div class="settlement-empty">&#x1F389; \u5168\u54E1\u306E\u8CB8\u3057\u501F\u308A\u306F\u3042\u308A\u307E\u305B\u3093\uFF01</div>';
+  } else {
+    el.innerHTML = '<div class="settlement-list">' + txns.map(function(t) {
+      return '<div class="settlement-item"><span class="settlement-from">' + esc(t.from) + '</span>' +
+        '<span class="settlement-arrow">&#x2192;</span>' +
+        '<span class="settlement-to">' + esc(t.to) + '</span>' +
+        '<span class="settlement-amount">' + money(t.amount) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  openModal('settlementModal');
+}
+
+function toggleSidebar() {
+  var s = document.querySelector('.sidebar');
+  var b = document.querySelector('.sidebar-backdrop');
+  var opening = !s.classList.contains('open');
+  s.classList.toggle('open', opening);
+  b.classList.toggle('open', opening);
+}
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.querySelector('.sidebar-backdrop').classList.remove('open');
+}
+function selectGroup(id) { currentGroupId = id; closeSidebar(); render(); }
+
+function openNewGroupModal() {
+  newMembers = [];
+  document.getElementById('newGroupName').value = '';
+  document.getElementById('newMemberInput').value = '';
+  renderNewMemberList();
+  openModal('newGroupModal');
+  setTimeout(function(){ document.getElementById('newGroupName').focus(); }, 50);
+}
+function renderNewMemberList() {
+  document.getElementById('newMemberList').innerHTML = newMembers.map(function(n,i) {
+    return '<div class="member-row"><span class="member-row-name">' + esc(n) + '</span><button class="member-row-del" onclick="newMembers.splice(' + i + ',1);renderNewMemberList()">&#x2715;</button></div>';
+  }).join('');
+}
+function addNewMember() {
+  var el = document.getElementById('newMemberInput');
+  var name = el.value.trim();
+  if (!name) return;
+  newMembers.push(name); el.value = '';
+  renderNewMemberList(); el.focus();
+}
+function createGroup() {
+  var name = document.getElementById('newGroupName').value.trim();
+  if (!name) { alert('\u30B0\u30EB\u30FC\u30D7\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  if (newMembers.length < 2) { alert('\u30E1\u30F3\u30D0\u30FC\u30922\u4EBA\u4EE5\u4E0A\u8FFD\u52A0\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  var g = { id: uid(), name: name, members: newMembers.map(function(n){ return { id: uid(), name: n }; }) };
+  db.groups.push(g); save();
+  closeModal("newGroupModal"); currentGroupId = g.id; render();
+}
+
+function openPaymentModal(payId) {
+  var group = getGroup();
+  if (!group) return;
+  editingPaymentId = payId || null;
+  var pay = payId ? db.payments.find(function(p){ return p.id === payId; }) : null;
+  document.getElementById('payDate').value = pay ? pay.date : today();
+  document.getElementById('payMemo').value = pay ? (pay.memo || '') : '';
+  document.getElementById('payAmount').value = pay ? pay.amount : '';
+  document.getElementById('payPayer').innerHTML = group.members.map(function(m){ return '<option value="' + m.id + '"' + (pay && pay.payerId === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('');
+  document.getElementById('payParticipants').innerHTML = group.members.map(function(m){
+    var sel = !pay || pay.participants.indexOf(m.id) >= 0;
+    return '<div class="chip' + (sel ? ' selected' : '') + '" data-id="' + m.id + '" data-name="' + esc(m.name) + '" onclick="toggleChip(this)">' + esc(m.name) + '</div>';
+  }).join('');
+  document.querySelector('#paymentModal .modal-title').textContent = pay ? '✏️ 支払いを編集' : '💳 支払いを記録';
+  openModal('paymentModal');
+}
+function openEditPayModal(id) { openPaymentModal(id); }
+function toggleChip(el) { el.classList.toggle('selected'); }
+function recordPayment() {
+  var date = document.getElementById('payDate').value;
+  var memo = document.getElementById('payMemo').value.trim();
+  var payerId = document.getElementById('payPayer').value;
+  var amount = parseFloat(document.getElementById('payAmount').value);
+  if (!date) { alert('\u65E5\u4ED8\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  if (!amount || amount <= 0) { alert('\u91D1\u984D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  var participants = Array.from(document.querySelectorAll('#payParticipants .chip.selected')).map(function(el){ return el.dataset.id; });
+  if (participants.length === 0) { alert('\u53C2\u52A0\u8005\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  if (participants.indexOf(payerId) < 0) participants.push(payerId);
+  if (editingPaymentId) {
+    var idx = db.payments.findIndex(function(p){ return p.id === editingPaymentId; });
+    if (idx >= 0) { db.payments[idx] = Object.assign(db.payments[idx], { payerId: payerId, amount: amount, participants: participants, date: date, memo: memo }); }
+    editingPaymentId = null;
+  } else {
+    db.payments.push({ id: uid(), groupId: currentGroupId, payerId: payerId, amount: amount, participants: participants, date: date, memo: memo, createdAt: Date.now() });
+  }
+  save(); closeModal("paymentModal"); renderMain();
+}
+function deletePay(id) {
+  if (!confirm('\u3053\u306E\u8A18\u9332\u3092\u524A\u9664\u3057\u307E\u3059\u304B\uFF1F')) return;
+  if (db.deletedPaymentIds.indexOf(id) === -1) db.deletedPaymentIds.push(id);
+  db.payments = db.payments.filter(function(p){ return p.id !== id; });
+  save(); renderMain();
+}
+
+// CSV helper
+function downloadCSV(rows, filename) {
+  var bom = '\uFEFF';
+  var csv = bom + rows.map(function(row){
+    return row.map(function(cell){ return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\r\n');
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Export
+function openExportModal() {
+  var group = getGroup();
+  if (!group) return;
+  document.getElementById('exportBtns').innerHTML =
+    '<button class="export-btn-row" onclick="exportPaymentsCSV();closeModal(&apos;exportModal&apos;)">' +
+      '<span class="export-btn-icon">&#x1F4CB;</span>' +
+      '<div><span class="export-btn-label">\u652F\u6255\u3044\u5C65\u6B74</span>' +
+      '<span class="export-btn-desc">\u65E5\u4ED8\u30FB\u30E1\u30E2\u30FB\u652F\u6255\u3063\u305F\u4EBA\u30FB\u91D1\u984D\u30FB\u53C2\u52A0\u8005\u30FB1\u4EBA\u3042\u305F\u308A</span></div>' +
+    '</button>' +
+    '<button class="export-btn-row" onclick="exportBalancesCSV();closeModal(&apos;exportModal&apos;)">' +
+      '<span class="export-btn-icon">&#x1F4CA;</span>' +
+      '<div><span class="export-btn-label">\u6B8B\u9AD8\u30B5\u30DE\u30EA\u30FC</span>' +
+      '<span class="export-btn-desc">\u30E1\u30F3\u30D0\u30FC\u3054\u3068\u306E\u7D2F\u7A4D\u6B8B\u9AD8\u3068\u72B6\u614B</span></div>' +
+    '</button>';
+  openModal('exportModal');
+}
+function exportPaymentsCSV() {
+  var group = getGroup();
+  if (!group) return;
+  var rows = [['\u65E5\u4ED8','\u30E1\u30E2','\u652F\u6255\u3063\u305F\u4EBA','\u91D1\u984D','\u53C2\u52A0\u8005','1\u4EBA\u3042\u305F\u308A']];
+  db.payments.filter(function(p){ return p.groupId === currentGroupId; })
+    .sort(function(a,b){ return a.date.localeCompare(b.date); })
+    .forEach(function(p) {
+      var payer = group.members.find(function(m){ return m.id === p.payerId; });
+      var parts = p.participants.map(function(id){ var m = group.members.find(function(m2){ return m2.id === id; }); return m ? m.name : ''; }).filter(Boolean).join(',');
+      var per = p.participants.length > 0 ? Math.round(p.amount / p.participants.length) : 0;
+      rows.push([p.date, p.memo || '', payer ? payer.name : '', p.amount, parts, per]);
+    });
+  downloadCSV(rows, group.name + '_\u652F\u6255\u3044\u5C65\u6B74.csv');
+}
+function exportBalancesCSV() {
+  var group = getGroup();
+  if (!group) return;
+  var bal = calcBalances(currentGroupId);
+  var rows = [['\u30E1\u30F3\u30D0\u30FC','\u6B8B\u9AD8\uFF08\u5186\uFF09','\u72B6\u614B']];
+  group.members.slice().sort(function(a,b){ return (bal[a.id]||0)-(bal[b.id]||0); }).forEach(function(m) {
+    var b = Math.round(bal[m.id] || 0);
+    var state = b > 0 ? '\u591A\u304F\u6255\u3063\u3066\u3044\u308B' : b < 0 ? '\u501F\u308A\u304C\u3042\u308B' : '\u307B\u307C\u5747\u7B49';
+    rows.push([m.name, b, state]);
+  });
+  downloadCSV(rows, group.name + '_\u6B8B\u9AD8\u30B5\u30DE\u30EA\u30FC.csv');
+}
+
+// Import
+function openImportModal() {
+  document.getElementById('importFile').value = '';
+  document.getElementById('importFeedback').innerHTML = '';
+  openModal('importModal');
+}
+function downloadTemplate() {
+  var group = getGroup();
+  var names = group ? group.members.map(function(m){ return m.name; }) : ['\u82B1\u4E95','\u7530\u4E2D','\u5C71\u7530'];
+  var rows = [
+    ['\u65E5\u4ED8','\u30E1\u30E2','\u652F\u6255\u3063\u305F\u4EBA','\u91D1\u984D','\u53C2\u52A0\u8005\uFF08\u30AB;\u30F3\u30DE\u533A\u5207\u308A\uFF09'],
+    ['2026-06-01','\u5C45\u9152\u5C4B',names[0],8400,names.join(',')],
+    ['2026-06-05','\u30E9\u30F3;\u30C1',names[1]||names[0],3200,names.join(',')]
+  ];
+  downloadCSV(rows, '\u30A4\u30F3\u30DD\u30FC\u30C8\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8.csv');
+}
+function loadSheetJS(cb) {
+  if (window.XLSX) { cb(); return; }
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.onload = cb; s.onerror = function(){ cb(new Error('SheetJS load failed')); };
+  document.head.appendChild(s);
+}
+function parseFileToRows(file, cb) {
+  var ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'xlsx' || ext === 'xls') {
+    loadSheetJS(function(err) {
+      if (err) { cb(err); return; }
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          var wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+          var ws = wb.Sheets[wb.SheetNames[0]];
+          cb(null, XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false }));
+        } catch(err2) { cb(err2); }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  } else {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var text = e.target.result.replace(/^\uFEFF/, '');
+        var rows = text.split(/\r?\n/).filter(function(l){ return l.trim(); }).map(function(line) {
+          var cols = [], cur = '', inQ = false;
+          for (var i = 0; i < line.length; i++) {
+            if (line[i] === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+            else if (line[i] === ',' && !inQ) { cols.push(cur); cur = ''; }
+            else cur += line[i];
+          }
+          cols.push(cur); return cols;
+        });
+        cb(null, rows);
+      } catch(err) { cb(err); }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+}
+function handleImport() {
+  var fileEl = document.getElementById('importFile');
+  var fb = document.getElementById('importFeedback');
+  var file = fileEl.files[0];
+  if (!file) { fb.innerHTML = '<span style="color:var(--red)">\u30D5\u30A1\u30A4\u30EB\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044</span>'; return; }
+  fb.innerHTML = '\u8AAD\u307F\u8FBC\u307F\u4E2D\u2026';
+  parseFileToRows(file, function(err, rows) {
+    if (err) { fb.innerHTML = '<span style="color:var(--red)">\u8AAD\u307F\u8FBC\u307F\u30A8\u30E9\u30FC: ' + err.message + '</span>'; return; }
+    if (!rows || rows.length < 2) { fb.innerHTML = '<span style="color:var(--red)">\u30C7\u30FC\u30BF\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F</span>'; return; }
+    var hdr = rows[0].map(function(h){ return String(h).trim(); });
+    var col = function(key){ return hdr.findIndex(function(h){ return h.indexOf(key) >= 0; }); };
+    var dateIdx = col('\u65E5\u4ED8'), memoIdx = col('\u30E1\u30E2'), payerIdx = col('\u652F\u6255'), amountIdx = col('\u91D1\u984D'), partsIdx = col('\u53C2\u52A0');
+    if (dateIdx < 0 || payerIdx < 0 || amountIdx < 0 || partsIdx < 0) {
+      fb.innerHTML = '<span style="color:var(--red)">\u5FC5\u8981\u306A\u5217\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u306E\u5F62\u5F0F\u3092\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044\u3002</span>'; return;
+    }
+    var group = getGroup();
+    var imported = 0, skipped = 0;
+    rows.slice(1).forEach(function(row) {
+      var date = String(row[dateIdx] || '').trim().slice(0, 10);
+      var memo = memoIdx >= 0 ? String(row[memoIdx] || '').trim() : '';
+      var payerN = String(row[payerIdx] || '').trim();
+      var amount = parseFloat(String(row[amountIdx]).replace(/,/g, ''));
+      var partNs = String(row[partsIdx] || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+      if (!date || !payerN || !amount || isNaN(amount) || partNs.length === 0) { skipped++; return; }
+      var allNames = [payerN].concat(partNs).filter(function(n, i, a){ return a.indexOf(n) === i; });
+      allNames.forEach(function(name) {
+        if (!group.members.find(function(m){ return m.name === name; })) group.members.push({ id: uid(), name: name });
+      });
+      var payerMember = group.members.find(function(m){ return m.name === payerN; });
+      var partIds = partNs.map(function(n){ var m = group.members.find(function(m2){ return m2.name === n; }); return m ? m.id : null; }).filter(Boolean);
+      if (partIds.indexOf(payerMember.id) < 0) partIds.push(payerMember.id);
+      db.payments.push({ id: uid(), groupId: currentGroupId, payerId: payerMember.id, amount: amount, participants: partIds, date: date, memo: memo, createdAt: Date.now() });
+      imported++;
+    });
+    if (imported === 0) { fb.innerHTML = '<span style="color:var(--red)">\u6709\u52B9\u306A\u30C7\u30FC\u30BF\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\uFF08' + skipped + '\u884C\u30B9\u30AD\u30C3\u30D7\uFF09</span>'; return; }
+    save();
+    fb.innerHTML = '<span style="color:var(--green)">&#x2713; ' + imported + '\u4EF6\u3092\u30A4\u30F3\u30DD\u30FC\u30C8\u3057\u307E\u3057\u305F' + (skipped > 0 ? '\uFF08' + skipped + '\u884C\u30B9\u30AD\u30C3\u30D7\uFF09' : '') + '</span>';
+    setTimeout(function(){ closeModal("importModal"); render(); }, 1200);
+  });
+}
+
+// Settings
+function openRenameGroupModal() {
+  var group = getGroup();
+  if (!group) return;
+  document.getElementById('renameGroupInput').value = group.name;
+  openModal('renameGroupModal');
+  setTimeout(function(){ document.getElementById('renameGroupInput').select(); }, 50);
+}
+function saveGroupRename() {
+  var name = document.getElementById('renameGroupInput').value.trim();
+  if (!name) { alert('\u30B0\u30EB\u30FC\u30D7\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  getGroup().name = name;
+  save(); closeModal('renameGroupModal'); render();
+}
+function confirmDeleteGroup() {
+  var group = getGroup();
+  if (!confirm('\u300C' + group.name + '\u300D\u3092\u524A\u9664\u3057\u307E\u3059\u304B\uFF1F\n\u652F\u6255\u3044\u8A18\u9332\u3082\u3059\u3079\u3066\u524A\u9664\u3055\u308C\u307E\u3059\u3002')) return;
+  if (db.deletedGroupIds.indexOf(currentGroupId) === -1) db.deletedGroupIds.push(currentGroupId);
+  db.groups = db.groups.filter(function(g){ return g.id !== currentGroupId; });
+  db.payments = db.payments.filter(function(p){ return p.groupId !== currentGroupId; });
+  save(); currentGroupId = null; render();
+}
+function openSettings() {
+  var group = getGroup();
+  if (!group) return;
+  editMembers = group.members.map(function(m){ return { id: m.id, name: m.name }; });
+  document.getElementById('editGroupName').value = group.name;
+  document.getElementById('editMemberInput').value = '';
+  renderEditMemberList(); openModal('settingsModal');
+}
+function renderEditMemberList() {
+  document.getElementById('editMemberList').innerHTML = editMembers.map(function(m, i) {
+    return '<div class="member-row"><span class="member-row-name">' + esc(m.name) + '</span><button class="member-row-del" onclick="editMembers.splice(' + i + ',1);renderEditMemberList()">&#x2715;</button></div>';
+  }).join('');
+}
+function addEditMember() {
+  var el = document.getElementById('editMemberInput');
+  var name = el.value.trim();
+  if (!name) return;
+  editMembers.push({ id: uid(), name: name }); el.value = '';
+  renderEditMemberList(); el.focus();
+}
+function saveSettings() {
+  var name = document.getElementById('editGroupName').value.trim();
+  if (!name) { alert('\u30B0\u30EB\u30FC\u30D7\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  if (editMembers.length < 2) { alert('\u30E1\u30F3\u30D0\u30FC\u30922\u4EBA\u4EE5\u4E0A\u306B\u3057\u3066\u304F\u3060\u3055\u3044'); return; }
+  var group = getGroup(); group.name = name; group.members = editMembers;
+  save(); closeModal("settingsModal"); render();
+}
+function deleteGroup() {
+  var group = getGroup();
+  if (!confirm('\u300C' + group.name + '\u300D\u3092\u524A\u9664\u3057\u307E\u3059\u304B\uFF1F\n\u652F\u6255\u3044\u8A18\u9332\u3082\u3059\u3079\u3066\u524A\u9664\u3055\u308C\u307E\u3059\u3002')) return;
+  if (db.deletedGroupIds.indexOf(currentGroupId) === -1) db.deletedGroupIds.push(currentGroupId);
+  db.groups = db.groups.filter(function(g){ return g.id !== currentGroupId; });
+  db.payments = db.payments.filter(function(p){ return p.groupId !== currentGroupId; });
+  save(); currentGroupId = null; closeModal("settingsModal"); render();
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(function(ov) {
+  ov.addEventListener('click', function(e){ if (e.target === ov) ov.classList.remove('open'); });
+});
+
+
+// ==============================
+// Firebase Sync
+// ==============================
+var FIREBASE_URL = 'https://kinsen-kanri-default-rtdb.firebaseio.com';
+var roomCode = localStorage.getItem('syncRoomCode') || '';
+// 自分の最終push時刻（localStorageに保存してリロード後も維持）
+var localUpdatedAt = parseInt(localStorage.getItem('syncLocalUpdatedAt') || '0');
+
+function dbUrl() { return FIREBASE_URL + '/rooms/' + roomCode + '.json'; }
+function hashData(d) { return JSON.stringify({ groups: d.groups || [], payments: d.payments || [] }); }
+
+function setSyncStatus(state) {
+  var dot = document.getElementById('syncDot');
+  var label = document.getElementById('syncLabel');
+  var badge = document.getElementById('syncCodeBadge');
+  if (!dot) return;
+  dot.className = 'sync-dot' + (state === 'on' ? '' : state === 'syncing' ? ' syncing' : ' off');
+  if (state === 'on') {
+    label.textContent = roomCode;
+    badge.innerHTML = '&#x2601; ' + roomCode;
+  } else if (state === 'syncing') {
+    label.textContent = '同期中...';
+  } else {
+    label.textContent = '同期なし';
+    badge.innerHTML = '&#x2601; 設定';
+  }
+}
+
+function pushToFirebase() {
+  if (!roomCode) return;
+  setSyncStatus('syncing');
+  // push前にlocalUpdatedAtをセット（リロード後もFirebaseより新しいと判定できるように）
+  localUpdatedAt = Date.now();
+  localStorage.setItem('syncLocalUpdatedAt', localUpdatedAt);
+  var payload = { groups: db.groups, payments: db.payments, deletedGroupIds: db.deletedGroupIds || [], deletedPaymentIds: db.deletedPaymentIds || [], updatedAt: localUpdatedAt };
+  fetch(dbUrl(), { method: 'PUT', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
+    .then(function() { setSyncStatus('on'); })
+    .catch(function() { setSyncStatus('on'); });
+}
+
+function startSync(code) {
+  roomCode = code;
+  localStorage.setItem('syncRoomCode', code);
+  setSyncStatus('syncing');
+  // 起動時に1回だけFirebaseを確認する（ポーリングなし）
+  fetch(dbUrl())
+    .then(function(r) { return r.json(); })
+    .then(function(remote) {
+      var hasRemote = remote && remote.groups && remote.groups.length > 0;
+      var remoteTime = (remote && remote.updatedAt) || 0;
+      if
