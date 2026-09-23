@@ -8,6 +8,9 @@
  *   groups/{code}/payments/{pid}   : { date, memo, payerId, amount,
  *                                      participants:{mid:true}, settlementId, pending,
  *                                      createdBy, createdAt, updatedAt }
+ *   groups/{code}/settlements/{sid}: { createdAt, createdBy, paymentIds:{pid:true},
+ *                                      transfers/{tid}: { from, to, fromName, toName,
+ *                                                         amount, done, doneAt?, doneBy? } }
  *
  * 決めごと:
  *   ・配列は使わない。すべて ID キーのオブジェクト
@@ -230,6 +233,36 @@
         .then(function () { return ref('users/' + myUid + '/groups/' + code).remove(); }));
   }
 
+  // ---- 清算済みのロック（工事3）---------------------------------------
+
+  var LOCKED_MSG = '清算済みの支払いは編集できません。先に清算を取り消してください';
+
+  /** 拒否を、書き込み失敗と同じ道（onWriteError）に流す */
+  function rejectLocked(op) {
+    var err = new Error(LOCKED_MSG);
+    err.code = 'KK_SETTLED_LOCKED';
+    err.__kkReported = true;
+    if (writeErrorHandler) {
+      try { writeErrorHandler(op, err); } catch (e) { console.error(e); }
+    } else {
+      console.error(op, err);
+    }
+    return Promise.reject(err);
+  }
+
+  /**
+   * 対象の支払いが清算済みでないことを確かめてから続きを実行する。
+   * 画面側で編集ボタンを無効にしているが、他端末で清算が確定した直後など
+   * すれ違いが起きうるので、書き込む直前にもう一度見る。
+   */
+  function ifNotSettled(code, pid, op, fn) {
+    return ref('groups/' + code + '/payments/' + pid + '/settlementId').once('value')
+      .then(function (s) {
+        if (s.val() != null) return rejectLocked(op);
+        return fn();
+      });
+  }
+
   // ---- グループの中身 -------------------------------------------------
 
   function setGroupName(code, name) {
@@ -263,37 +296,102 @@
   function addPayment(code, p) {
     var myUid = uid();
     var pid = ref('groups/' + code + '/payments').push().key;
+    var pending = p.pending === true;
     return wrapWrite('支払いを記録できませんでした',
       ref('groups/' + code + '/payments/' + pid).set({
       date: p.date,
       memo: p.memo || '',
       payerId: p.payerId,
-      amount: p.amount,
+      amount: pending ? 0 : p.amount,   // 金額確認中は 0 で持つ（§5.3.1）
       participants: p.participants,
-      settlementId: null,   // 工事3 の清算レコード用。今は必ず null
-      pending: false,       // 工事3 の「金額確認中」用。今は必ず false
+      settlementId: null,   // 清算するとここに sid が入る
+      pending: pending,     // 金額確認中（残高・清算から外れる）
       createdBy: myUid,
       createdAt: FB.now(),
       updatedAt: FB.now()
       })).then(function () { return pid; });
   }
 
-  /** 支払いの更新。触ったフィールドだけ update する（createdBy / createdAt は保つ） */
+  /**
+   * 支払いの更新。触ったフィールドだけ update する（createdBy / createdAt は保つ）。
+   * 清算済みのものは書かずに拒否する（工事3）。
+   */
   function updatePayment(code, pid, p) {
-    return wrapWrite('支払いを更新できませんでした',
-      ref('groups/' + code + '/payments/' + pid).update({
-        date: p.date,
-        memo: p.memo || '',
-        payerId: p.payerId,
-        amount: p.amount,
-        participants: p.participants,
-        updatedAt: FB.now()
+    var pending = p.pending === true;
+    return ifNotSettled(code, pid, '支払いを更新できませんでした', function () {
+      return wrapWrite('支払いを更新できませんでした',
+        ref('groups/' + code + '/payments/' + pid).update({
+          date: p.date,
+          memo: p.memo || '',
+          payerId: p.payerId,
+          amount: pending ? 0 : p.amount,
+          participants: p.participants,
+          pending: pending,
+          updatedAt: FB.now()
+        }));
+    });
+  }
+
+  /** 支払いの削除。清算済みのものは消さずに拒否する（工事3）。 */
+  function removePayment(code, pid) {
+    return ifNotSettled(code, pid, '支払いを削除できませんでした', function () {
+      return wrapWrite('支払いを削除できませんでした',
+        ref('groups/' + code + '/payments/' + pid).remove());
+    });
+  }
+
+  // ---- 清算（工事3）---------------------------------------------------
+
+  /**
+   * 清算を確定する。**1 回の多パス update** で
+   *   ・settlements/{sid} を書く
+   *   ・対象の payments/{pid}/settlementId に sid を入れる
+   * を同時に行う（途中で切れて「片方だけ」にならないように）。
+   *
+   * @param {string} code グループの共有コード
+   * @param {Object} settlement Settle.buildSettlement の戻り値
+   * @returns {Promise<string>} 作成した清算の ID（sid）
+   */
+  function confirmSettlement(code, settlement) {
+    var sid = ref('groups/' + code + '/settlements').push().key;
+    var updates = {};
+    updates['settlements/' + sid] = settlement;
+    Object.keys(settlement.paymentIds || {}).forEach(function (pid) {
+      updates['payments/' + pid + '/settlementId'] = sid;
+    });
+    return wrapWrite('清算を記録できませんでした',
+      ref('groups/' + code).update(updates)).then(function () { return sid; });
+  }
+
+  /** 送金 1 本のチェックを付け外しする（誰がいつ付けたかも残す） */
+  function setTransferDone(code, sid, tid, done) {
+    var myUid = uid();
+    var base = 'groups/' + code + '/settlements/' + sid + '/transfers/' + tid;
+    return wrapWrite('送金のチェックを更新できませんでした',
+      ref(base).update({
+        done: !!done,
+        doneAt: done ? FB.now() : null,
+        doneBy: done ? myUid : null
       }));
   }
 
-  function removePayment(code, pid) {
-    return wrapWrite('支払いを削除できませんでした',
-      ref('groups/' + code + '/payments/' + pid).remove());
+  /**
+   * 清算を取り消す。**1 回の多パス update** で
+   *   ・対象の payments/{pid}/settlementId を null に戻す
+   *   ・settlements/{sid} を消す
+   * を同時に行う。取り消せるのは最新の 1 件だけ（判定は Settle.canUndo、画面側）。
+   *
+   * @param {Object|Array} paymentIds { pid: true } か [pid]
+   */
+  function undoSettlement(code, sid, paymentIds) {
+    var ids = Array.isArray(paymentIds) ? paymentIds : Object.keys(paymentIds || {});
+    var updates = {};
+    ids.forEach(function (pid) {
+      updates['payments/' + pid + '/settlementId'] = null;
+    });
+    updates['settlements/' + sid] = null;
+    return wrapWrite('清算を取り消せませんでした',
+      ref('groups/' + code).update(updates));
   }
 
   // ---- 移行（旧 rooms からの取り込み。工事2）--------------------------
@@ -418,6 +516,9 @@
     addPayment: addPayment,
     updatePayment: updatePayment,
     removePayment: removePayment,
+    confirmSettlement: confirmSettlement,
+    setTransferDone: setTransferDone,
+    undoSettlement: undoSettlement,
     readRoom: readRoom,
     allocCodes: allocCodes,
     migrateRoom: migrateRoom,

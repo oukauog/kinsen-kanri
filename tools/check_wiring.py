@@ -49,9 +49,12 @@ def main():
 
     # HTML が参照している id を ui.js が $('...') で引いているか（逆方向の確認）
     html_ids = set(re.findall(r'\sid="([^"]+)"', html))
+    # ui.js が自分で組み立てる HTML の中に置いた id も「実在する」として扱う
+    made_by_ui = set(re.findall(r'id="([A-Za-z_][\w-]*)"', ui))
+    made_by_ui |= set(re.findall(r"\.id\s*=\s*'([^']+)'", ui))
     ui_ids = set(re.findall(r"\$\('([^']+)'\)", ui))
     ui_ids |= set(re.findall(r'getElementById\([\'"]([^\'"]+)[\'"]\)', ui))
-    missing_ids = sorted(i for i in ui_ids if i not in html_ids and i != "toastBox")
+    missing_ids = sorted(i for i in ui_ids if i not in html_ids and i not in made_by_ui)
 
     ok = True
     if missing:

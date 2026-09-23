@@ -40,6 +40,15 @@
   var id = 0;
   function nextId(p) { id++; return p + id; }
 
+  // store.js の ifNotSettled と同じふるまい（清算済みは書かずに拒否）
+  function reportLocked(op) {
+    var err = new Error('清算済みの支払いは編集できません。先に清算を取り消してください');
+    err.code = 'KK_SETTLED_LOCKED';
+    err.__kkReported = true;
+    if (writeErrCb) writeErrCb(op, err);
+    return Promise.reject(err);
+  }
+
   // store.js の wrapWrite と同じふるまい: 通知して、印を付けて、拒否する
   function reportFail(op) {
     var err = new Error('テストのための失敗');
@@ -134,21 +143,58 @@
       if (failNext) { failNext = false; return reportFail('支払いを記録できませんでした'); }
       var pid = nextId('p');
       data.groups[code].payments = data.groups[code].payments || {};
+      var pending = p.pending === true;
       data.groups[code].payments[pid] = {
-        date: p.date, memo: p.memo || '', payerId: p.payerId, amount: p.amount,
-        participants: p.participants, settlementId: null, pending: false,
+        date: p.date, memo: p.memo || '', payerId: p.payerId,
+        amount: pending ? 0 : p.amount,
+        participants: p.participants, settlementId: null, pending: pending,
         createdBy: USER.uid, createdAt: Date.now(), updatedAt: Date.now()
       };
       notifyGroup(code); return Promise.resolve(pid);
     },
     updatePayment: function (code, pid, p) {
       var t = data.groups[code].payments[pid];
+      if (t && t.settlementId != null) return reportLocked('支払いを更新できませんでした');
+      var pending = p.pending === true;
       t.date = p.date; t.memo = p.memo || ''; t.payerId = p.payerId;
-      t.amount = p.amount; t.participants = p.participants; t.updatedAt = Date.now();
+      t.amount = pending ? 0 : p.amount; t.pending = pending;
+      t.participants = p.participants; t.updatedAt = Date.now();
       notifyGroup(code); return Promise.resolve();
     },
     removePayment: function (code, pid) {
+      var t = data.groups[code].payments[pid];
+      if (t && t.settlementId != null) return reportLocked('支払いを削除できませんでした');
       delete data.groups[code].payments[pid]; notifyGroup(code); return Promise.resolve();
+    },
+
+    // ---- 清算（工事3）----
+    confirmSettlement: function (code, settlement) {
+      var sid = nextId('s');
+      var g = data.groups[code];
+      g.settlements = g.settlements || {};
+      g.settlements[sid] = clone(settlement);
+      Object.keys(settlement.paymentIds || {}).forEach(function (pid) {
+        if (g.payments[pid]) g.payments[pid].settlementId = sid;
+      });
+      notifyGroup(code);
+      return Promise.resolve(sid);
+    },
+    setTransferDone: function (code, sid, tid, done) {
+      var t = data.groups[code].settlements[sid].transfers[tid];
+      t.done = !!done;
+      t.doneAt = done ? Date.now() : null;
+      t.doneBy = done ? USER.uid : null;
+      notifyGroup(code);
+      return Promise.resolve();
+    },
+    undoSettlement: function (code, sid, paymentIds) {
+      var g = data.groups[code];
+      Object.keys(paymentIds || {}).forEach(function (pid) {
+        if (g.payments[pid]) g.payments[pid].settlementId = null;
+      });
+      delete g.settlements[sid];
+      notifyGroup(code);
+      return Promise.resolve();
     },
     watchConnection: function (cb) { connCb = cb; later(function () { cb(true); }); },
     onWriteError: function (fn) { writeErrCb = fn; },

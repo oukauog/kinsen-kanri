@@ -275,6 +275,11 @@
     <div class="form-group">
       <label class="form-label">&#x5408;&#x8A08;&#x91D1;&#x984D;&#xFF08;&#x5186;&#xFF09;</label>
       <input type="number" class="form-input" id="payAmount" placeholder="0" min="0" step="1">
+      <label class="check-row">
+        <input type="checkbox" id="payPending" onchange="onPendingToggle()">
+        <span>金額確認中（あとで金額を入れる）</span>
+      </label>
+      <div class="check-hint" id="payPendingHint">確認中の支払いは残高と清算の計算に入りません</div>
     </div>
     <div class="form-group">
       <label class="form-label">&#x5272;&#x308A;&#x52D5;&#x3059;&#x308B;&#x4EBA;</label>
@@ -325,11 +330,8 @@
 
 <!-- Modal: &#x6E05;&#x7B97; -->
 <div class="modal-overlay" id="settlementModal">
-  <div class="modal">
+  <div class="modal modal-wide">
     <div class="modal-title">&#x1F9FE; &#x6E05;&#x7B97;</div>
-    <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:16px">
-      &#x4EE5;&#x4E0B;&#x306E;&#x652F;&#x6255;&#x3044;&#x3092;&#x884C;&#x3046;&#x3068;&#x8CB8;&#x3057;&#x501F;&#x308A;&#x304C;&#x30C1;&#x30E3;&#x30E9;&#x306B;&#x306A;&#x308A;&#x307E;&#x3059;&#x3002;
-    </p>
     <div id="settlementContent"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('settlementModal')">&#x9589;&#x3058;&#x308B;</button>
@@ -434,6 +436,7 @@
 <script src="js/firebase-init.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/migrate.js"></script>
+<script src="js/settle.js"></script>
 <script src="js/store.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/ui.js"></script>
