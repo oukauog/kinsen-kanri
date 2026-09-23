@@ -1,0 +1,204 @@
+/*
+ * v2.css — v2 で足りなくなった分だけの追加スタイル
+ * 配色・カード・モーダルは index.html の <style>（v1）をそのまま使う。
+ * ここでは v1 に無かった部品（ログイン画面・ユーザー欄・接続ドット・トースト等）だけを足す。
+ */
+
+[hidden] { display: none !important; }
+
+/* ── ログイン画面 ───────────────────────────── */
+.login-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 28px 20px;
+  text-align: center;
+  overflow-y: auto;
+}
+.login-card {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: 16px;
+  padding: 32px 26px;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.05);
+}
+.login-icon { font-size: 2.6rem; }
+.login-title { font-size: 1.1rem; font-weight: 700; margin: 10px 0 6px; }
+.login-desc { font-size: 0.85rem; color: var(--gray-500); line-height: 1.7; margin-bottom: 22px; }
+.btn-google {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--gray-300);
+  background: white;
+  color: var(--gray-700);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.btn-google:hover { background: var(--gray-50); }
+.btn-google:disabled { opacity: 0.6; cursor: default; }
+.login-note { font-size: 0.75rem; color: var(--gray-500); line-height: 1.6; margin-top: 16px; }
+.login-error {
+  margin-top: 14px;
+  font-size: 0.82rem;
+  color: var(--red);
+  background: var(--red-light);
+  border-radius: 8px;
+  padding: 10px 12px;
+  line-height: 1.6;
+}
+
+/* ── ヘッダ右（表示名・アイコン・ログアウト・接続状態） ── */
+.user-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+  font-size: 0.8rem;
+  min-width: 0;
+}
+.conn-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #86efac;          /* 接続中 */
+  flex-shrink: 0;
+}
+.conn-dot.off { background: rgba(255, 255, 255, 0.35); }   /* オフライン */
+.user-avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.25);
+}
+.user-name {
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.95;
+}
+.btn-logout {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.btn-logout:hover { background: rgba(255, 255, 255, 0.3); }
+
+/* ── サイドバー ─────────────────────────────── */
+.sidebar-empty { padding: 12px 16px; font-size: 0.8rem; color: var(--gray-500); }
+.sidebar-btns { display: flex; flex-direction: column; gap: 8px; margin: 12px; }
+.btn-join-group {
+  padding: 10px;
+  background: white;
+  color: var(--gray-700);
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+.btn-join-group:hover { background: var(--gray-50); }
+.sidebar-btns .btn-add-group { margin: 0; font-family: inherit; }
+
+.group-item.missing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gray-500);
+  font-style: italic;
+  cursor: default;
+}
+.group-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.group-item-x {
+  background: none; border: none; cursor: pointer;
+  color: var(--gray-300); font-size: 0.9rem; padding: 2px 4px;
+}
+.group-item-x:hover { color: var(--red); }
+
+/* ── 支払い履歴: 他端末の追加をひと目で ────────── */
+@keyframes kk-flash {
+  0%   { background: var(--primary-light); }
+  100% { background: white; }
+}
+.payment-item.flash { animation: kk-flash 1.6s ease-out; }
+
+/* ── グループ設定: 共有コード ────────────────── */
+.share-code-box {
+  font-family: monospace;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: 14px;
+  background: var(--gray-50);
+  border: 2px dashed var(--gray-300);
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: all;
+}
+.share-code-box:hover { border-color: var(--primary); }
+.share-code-hint { font-size: 0.75rem; color: var(--gray-500); text-align: center; margin-top: 6px; }
+.member-row-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.88rem;
+  background: white;
+}
+.settlement-note { font-size: 0.75rem; color: var(--gray-500); margin-top: 12px; line-height: 1.6; }
+.join-feedback { font-size: 0.82rem; color: var(--gray-500); min-height: 1.4em; margin-top: 6px; }
+
+/* ── トースト ───────────────────────────────── */
+.toast-box {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  width: calc(100% - 32px);
+  max-width: 420px;
+  pointer-events: none;
+}
+.toast {
+  background: var(--gray-900);
+  color: white;
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  opacity: 1;
+  transition: opacity 0.35s;
+  max-width: 100%;
+}
+.toast.toast-error { background: var(--red); }
+.toast.out { opacity: 0; }
+
+/* ── モバイル ───────────────────────────────── */
+@media (max-width: 640px) {
+  .user-bar { gap: 6px; flex-shrink: 0; max-width: 60%; }
+  .user-name { display: none; }
+  .user-avatar { width: 22px; height: 22px; }
+  .btn-logout { padding: 4px 9px; font-size: 0.7rem; }
+  .login-card { padding: 24px 18px; }
+}

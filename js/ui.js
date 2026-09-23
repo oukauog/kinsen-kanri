@@ -1,0 +1,723 @@
+/*
+ * ui.js — v2 の画面。index.html の onclick から呼ばれる関数はすべてここで global に生やす
+ *
+ * 構成:
+ *   状態 → 描画（サイドバー / メイン）→ 各操作（モーダル）→ 起動
+ *
+ * 表示の作り方は v1 を踏襲（innerHTML を組み立てて差し込む）。
+ * 差分は「データが Firebase のリスナー経由で入ってくる」ことだけで、
+ * 描画そのものは v1 と同じ見た目になるようにしてある。
+ */
+(function (root) {
+  'use strict';
+
+  var Calc = root.Calc;
+  var Store = root.KKStore;
+  var Auth = root.KKAuth;
+
+  var LS_LAST_GROUP = 'kk_v2_lastGroup';   // v2 が使う localStorage は kk_v2_* のみ
+
+  // ---- 状態 -----------------------------------------------------------
+
+  var me = null;              // Firebase の user
+  var myGroups = {};          // { code: { joinedAt } }
+  var metas = {};             // { code: meta | null }   ← null は「消えたグループ」
+  var metaOff = {};           // { code: 監視を外す関数 }
+  var currentCode = null;     // 開いているグループの共有コード
+  var currentGroup = null;    // { meta, members, payments }
+  var seenPaymentAt = null;   // ハイライト用 { pid: 最初に見えた時刻 }。null は「初回描画前」
+  var FLASH_MS = 1600;        // 新しく入った行を光らせる時間（css の kk-flash と合わせる）
+  var newMembers = [];        // 新規グループ作成モーダルの作業用
+  var editMembers = [];       // グループ設定モーダルの作業用
+  var editingPaymentId = null;
+
+  // ---- 小道具 ---------------------------------------------------------
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function money(n) { return Calc.money(n); }
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function openModal(id) { $(id).classList.add('open'); }
+  function closeModal(id) { $(id).classList.remove('open'); }
+
+  /** 画面下に短いメッセージを出す。kind は '' / 'error' */
+  function toast(msg, kind) {
+    var box = $('toastBox');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'toastBox';
+      box.className = 'toast-box';
+      document.body.appendChild(box);
+    }
+    var el = document.createElement('div');
+    el.className = 'toast' + (kind === 'error' ? ' toast-error' : '');
+    el.textContent = msg;
+    box.appendChild(el);
+    setTimeout(function () { el.classList.add('out'); }, kind === 'error' ? 5000 : 2600);
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); },
+      kind === 'error' ? 5400 : 3000);
+  }
+
+  /** Firebase の失敗を握りつぶさない（v1 の反省点。仕様書 §0-3、§5.7）*/
+  function fail(prefix) {
+    return function (err) {
+      var msg = err && err.message ? err.message : String(err);
+      if (err && err.code === 'PERMISSION_DENIED') {
+        msg = 'アクセスが拒否されました（ログインし直すか、共有コードを確認してください）';
+      }
+      console.error(prefix, err);
+      toast(prefix + ': ' + msg, 'error');
+    };
+  }
+
+  /** members / payments のオブジェクトを表示用の配列にする */
+  function memberList(group) {
+    return Calc.normalizeMembers(group && group.members ? group.members : {});
+  }
+  function paymentList(group) {
+    var ps = Calc.normalizePayments(group && group.payments ? group.payments : {});
+    return ps.sort(function (a, b) {
+      return String(b.date || '').localeCompare(String(a.date || '')) ||
+        ((b.createdAt || 0) - (a.createdAt || 0));
+    });
+  }
+  function memberName(members, mid) {
+    for (var i = 0; i < members.length; i++) if (members[i].id === mid) return members[i].name;
+    return '?';
+  }
+
+  // ---- ログイン画面の出し分け ------------------------------------------
+
+  function hideBoot() {
+    var b = $('bootScreen');
+    if (b) b.hidden = true;
+  }
+
+  function showLoggedOut() {
+    hideBoot();
+    $('loginScreen').hidden = false;
+    $('appLayout').hidden = true;
+    $('userBar').hidden = true;
+    closeSidebar();
+  }
+
+  function showLoggedIn(user) {
+    hideBoot();
+    $('loginScreen').hidden = true;
+    $('appLayout').hidden = false;
+    $('userBar').hidden = false;
+    $('userName').textContent = user.displayName || user.email || '';
+    var img = $('userAvatar');
+    if (user.photoURL) { img.src = user.photoURL; img.hidden = false; }
+    else { img.hidden = true; }
+  }
+
+  function doLogin() {
+    var btn = $('btnLogin');
+    if (btn) { btn.disabled = true; btn.textContent = 'ログイン中…'; }
+    Auth.login().catch(function (err) {
+      fail('ログインに失敗しました')(err);
+    }).then(function () {
+      if (btn) { btn.disabled = false; btn.textContent = 'Google でログイン'; }
+    });
+  }
+
+  function doLogout() {
+    Store.stopWatchMyGroups();
+    Store.stopWatchGroup();
+    Object.keys(metaOff).forEach(function (c) { metaOff[c](); });
+    metaOff = {}; metas = {}; myGroups = {};
+    currentCode = null; currentGroup = null; seenPaymentAt = null;
+    Auth.logout().catch(fail('ログアウトに失敗しました'));
+  }
+
+  // ---- サイドバー -----------------------------------------------------
+
+  function sortedCodes() {
+    return Object.keys(myGroups).sort(function (a, b) {
+      var na = metas[a] && metas[a].name ? metas[a].name : '';
+      var nb = metas[b] && metas[b].name ? metas[b].name : '';
+      return na.localeCompare(nb, 'ja') || a.localeCompare(b);
+    });
+  }
+
+  function renderSidebar() {
+    var el = $('groupList');
+    var codes = sortedCodes();
+    if (codes.length === 0) {
+      el.innerHTML = '<div class="sidebar-empty">グループがまだありません</div>';
+      return;
+    }
+    el.innerHTML = codes.map(function (code) {
+      var meta = metas[code];
+      if (meta === null) {
+        // グループ本体が消えている（他の人が削除した、またはコードが間違っていた）
+        return '<div class="group-item missing">' +
+          '<span class="group-item-name">（削除されたグループ）</span>' +
+          '<button class="group-item-x" title="一覧から消す" ' +
+          'onclick="dismissMissingGroup(\'' + code + '\')">&#x2715;</button></div>';
+      }
+      var name = meta && meta.name ? meta.name : '読み込み中…';
+      return '<div class="group-item' + (code === currentCode ? ' active' : '') + '" ' +
+        'onclick="selectGroup(\'' + code + '\')">' + esc(name) + '</div>';
+    }).join('');
+  }
+
+  // ---- メイン画面 -----------------------------------------------------
+
+  function renderMain() {
+    var main = $('main');
+    if (!currentCode) {
+      main.innerHTML = '<div class="empty-state"><div class="icon">&#x1F465;</div>' +
+        '<h2>グループを選択してください</h2>' +
+        '<p>左サイドバーからグループを選ぶか、<br>新しいグループを作成してください</p></div>';
+      return;
+    }
+    if (!currentGroup) {
+      main.innerHTML = '<div class="empty-state"><div class="icon">&#x23F3;</div>' +
+        '<h2>読み込み中…</h2></div>';
+      return;
+    }
+
+    var members = memberList(currentGroup);
+    var pays = paymentList(currentGroup);
+    var bal = Calc.calcBalances(members, pays);
+    var groupName = currentGroup.meta && currentGroup.meta.name ? currentGroup.meta.name : '(名称未設定)';
+
+    var sorted = members.slice().sort(function (a, b) {
+      return (bal[a.id] || 0) - (bal[b.id] || 0);
+    });
+    var nextMember = sorted.filter(function (m) { return (bal[m.id] || 0) < -0.5; })[0];
+    var nextId = nextMember ? nextMember.id : null;
+
+    var balHTML = sorted.map(function (m) {
+      var b = bal[m.id] || 0;
+      var cls = b > 0.5 ? 'positive' : b < -0.5 ? 'negative' : '';
+      var label = b > 0.5 ? '多く払っている' : b < -0.5 ? '借りがある' : 'ほぼ均等';
+      var sign = b >= 0 ? '+' : '−';
+      return '<div class="balance-card ' + cls + '">' +
+        (m.id === nextId ? '<div class="next-badge">次は払う番？</div>' : '') +
+        '<div class="balance-name">' + esc(m.name) + '</div>' +
+        '<div class="balance-amount">' + sign + money(b) + '</div>' +
+        '<div class="balance-label">' + label + '</div></div>';
+    }).join('');
+
+    // 他の端末で追加された行を一瞬光らせる（初回描画では光らせない）。
+    // 「初めて見えた時刻」で判定する。描画が続けて走っても消えないようにするため。
+    var now = Date.now();
+    var firstRender = (seenPaymentAt === null);
+    if (firstRender) seenPaymentAt = {};
+    var fresh = {};
+    var alive = {};
+    pays.forEach(function (p) {
+      alive[p.id] = true;
+      if (!(p.id in seenPaymentAt)) seenPaymentAt[p.id] = firstRender ? 0 : now;
+      if (now - seenPaymentAt[p.id] < FLASH_MS) fresh[p.id] = true;
+    });
+    Object.keys(seenPaymentAt).forEach(function (id) {
+      if (!alive[id]) delete seenPaymentAt[id];
+    });
+
+    var paysHTML = pays.length === 0
+      ? '<div class="no-payments">まだ記録がありません。</div>'
+      : '<div class="payment-list">' + pays.map(function (p) {
+        var per = p.participants.length > 0 ? p.amount / p.participants.length : 0;
+        var partNames = p.participants.map(function (mid) {
+          return memberName(members, mid);
+        }).join('・');
+        return '<div class="payment-item' + (fresh[p.id] ? ' flash' : '') + '">' +
+          '<div class="payment-date">' + esc(p.date) + '</div>' +
+          '<div class="payment-info">' +
+            '<div class="payment-payer">' + esc(p.memo || '支払い') + '</div>' +
+            '<div class="payment-memo">' + esc(memberName(members, p.payerId)) + ' が支払い</div>' +
+            '<div class="payment-participants">' + esc(partNames) + '</div>' +
+          '</div>' +
+          '<div class="payment-amounts"><div class="payment-total">' + money(p.amount) + '</div>' +
+          '<div class="payment-per">1人 ' + money(per) + '</div></div>' +
+          '<button class="btn-edit" onclick="openEditPayModal(\'' + p.id + '\')" title="編集">&#x270F;</button>' +
+          '<button class="btn-delete" onclick="deletePay(\'' + p.id + '\')" title="削除">&#x2715;</button>' +
+          '</div>';
+      }).join('') + '</div>';
+
+    main.innerHTML =
+      '<div class="group-header">' +
+        '<div class="group-title">' + esc(groupName) + '</div>' +
+        '<div class="group-actions">' +
+          '<button class="btn btn-primary" onclick="openPaymentModal()">&#xFF0B; 支払いを記録</button>' +
+          '<button class="btn btn-secondary" onclick="openSettlement()">清算</button>' +
+          '<button class="btn btn-secondary" onclick="openSettings()">設定</button>' +
+        '</div></div>' +
+      '<div class="section-title">残高 — マイナスが大きい人が次の支払い候補</div>' +
+      '<div class="balance-grid">' + balHTML + '</div>' +
+      '<div class="section-title">支払い履歴</div>' + paysHTML;
+  }
+
+  function render() { renderSidebar(); renderMain(); }
+
+  // ---- グループの選択・監視 -------------------------------------------
+
+  function selectGroup(code) {
+    if (currentCode === code) { closeSidebar(); return; }
+    currentCode = code;
+    currentGroup = null;
+    seenPaymentAt = null;
+    try { localStorage.setItem(LS_LAST_GROUP, code); } catch (e) { /* 使えなくても動く */ }
+    closeSidebar();
+    render();
+    Store.watchGroup(code, function (g) {
+      if (currentCode !== code) return;
+      if (g === null) {
+        // 他の人が削除した／権限が無くなった
+        currentGroup = null;
+        currentCode = null;
+        seenPaymentAt = null;
+        try { localStorage.removeItem(LS_LAST_GROUP); } catch (e) { /* noop */ }
+        toast('このグループは削除されました');
+        render();
+        return;
+      }
+      currentGroup = g;
+      render();
+    }, function (err) {
+      currentGroup = null;
+      render();
+      fail('グループを読み込めませんでした')(err);
+    });
+  }
+
+  function dismissMissingGroup(code) {
+    if (!confirm('このグループを一覧から消しますか？')) return;
+    Store.leaveGroup(code).catch(fail('一覧から消せませんでした'));
+  }
+
+  /** 参加グループの meta 監視を、一覧の増減に合わせて張り直す */
+  function syncMetaWatchers() {
+    var codes = Object.keys(myGroups);
+    codes.forEach(function (code) {
+      if (metaOff[code]) return;
+      if (!(code in metas)) metas[code] = undefined;   // 読み込み中
+      metaOff[code] = Store.watchMeta(code, function (meta) {
+        metas[code] = meta === null ? null : meta;
+        renderSidebar();
+        if (code === currentCode) renderMain();
+      }, function (err) {
+        console.error('meta', code, err);
+        metas[code] = null;
+        renderSidebar();
+      });
+    });
+    Object.keys(metaOff).forEach(function (code) {
+      if (codes.indexOf(code) >= 0) return;
+      metaOff[code](); delete metaOff[code]; delete metas[code];
+    });
+  }
+
+  // ---- サイドバー開閉（v1 と同じ） -------------------------------------
+
+  function toggleSidebar() {
+    var s = document.querySelector('.sidebar');
+    var b = document.querySelector('.sidebar-backdrop');
+    var opening = !s.classList.contains('open');
+    s.classList.toggle('open', opening);
+    b.classList.toggle('open', opening);
+  }
+  function closeSidebar() {
+    var s = document.querySelector('.sidebar');
+    var b = document.querySelector('.sidebar-backdrop');
+    if (s) s.classList.remove('open');
+    if (b) b.classList.remove('open');
+  }
+
+  // ---- グループ作成 ---------------------------------------------------
+
+  function openNewGroupModal() {
+    newMembers = [];
+    $('newGroupName').value = '';
+    $('newMemberInput').value = '';
+    renderNewMemberList();
+    openModal('newGroupModal');
+    setTimeout(function () { $('newGroupName').focus(); }, 50);
+  }
+  function renderNewMemberList() {
+    $('newMemberList').innerHTML = newMembers.map(function (n, i) {
+      return '<div class="member-row"><span class="member-row-name">' + esc(n) + '</span>' +
+        '<button class="member-row-del" onclick="removeNewMember(' + i + ')">&#x2715;</button></div>';
+    }).join('');
+  }
+  function removeNewMember(i) { newMembers.splice(i, 1); renderNewMemberList(); }
+  function addNewMember() {
+    var el = $('newMemberInput');
+    var name = el.value.trim();
+    if (!name) return;
+    newMembers.push(name); el.value = '';
+    renderNewMemberList(); el.focus();
+  }
+  function createGroup() {
+    var name = $('newGroupName').value.trim();
+    if (!name) { alert('グループ名を入力してください'); return; }
+    if (newMembers.length < 2) { alert('メンバーを2人以上追加してください'); return; }
+    Store.createGroup(name, newMembers).then(function (code) {
+      closeModal('newGroupModal');
+      toast('グループを作成しました（共有コード ' + code + '）');
+      selectGroup(code);
+    }).catch(fail('グループを作成できませんでした'));
+  }
+
+  // ---- コードで参加 ---------------------------------------------------
+
+  function openJoinModal() {
+    $('joinCodeInput').value = '';
+    $('joinFeedback').textContent = '';
+    openModal('joinGroupModal');
+    setTimeout(function () { $('joinCodeInput').focus(); }, 50);
+  }
+  function doJoin() {
+    var code = ($('joinCodeInput').value || '').trim().toUpperCase();
+    var fb = $('joinFeedback');
+    if (code.length < 4) { fb.textContent = 'コードを入力してください'; return; }
+    if (myGroups[code]) {
+      fb.textContent = 'このグループにはすでに参加しています';
+      return;
+    }
+    fb.textContent = '確認中…';
+    Store.readMeta(code).then(function (meta) {
+      if (!meta) { fb.textContent = 'そのコードのグループは見つかりませんでした'; return; }
+      if (!confirm('「' + (meta.name || '(名称未設定)') + '」に参加しますか？')) {
+        fb.textContent = '';
+        return;
+      }
+      return Store.joinGroup(code).then(function () {
+        closeModal('joinGroupModal');
+        toast('「' + (meta.name || '') + '」に参加しました');
+        selectGroup(code);
+      });
+    }).catch(function (err) {
+      fb.textContent = '';
+      fail('参加できませんでした')(err);
+    });
+  }
+
+  // ---- 支払い ---------------------------------------------------------
+
+  function openPaymentModal(payId) {
+    if (!currentGroup) return;
+    var members = memberList(currentGroup);
+    if (members.length === 0) { alert('先にメンバーを追加してください'); return; }
+    editingPaymentId = payId || null;
+    var pay = null;
+    if (payId) {
+      pay = paymentList(currentGroup).filter(function (p) { return p.id === payId; })[0] || null;
+    }
+    $('payDate').value = pay ? pay.date : today();
+    $('payMemo').value = pay ? (pay.memo || '') : '';
+    $('payAmount').value = pay ? pay.amount : '';
+    $('payPayer').innerHTML = members.map(function (m) {
+      return '<option value="' + m.id + '"' + (pay && pay.payerId === m.id ? ' selected' : '') +
+        '>' + esc(m.name) + '</option>';
+    }).join('');
+    $('payParticipants').innerHTML = members.map(function (m) {
+      var sel = !pay || pay.participants.indexOf(m.id) >= 0;
+      return '<div class="chip' + (sel ? ' selected' : '') + '" data-id="' + m.id +
+        '" onclick="toggleChip(this)">' + esc(m.name) + '</div>';
+    }).join('');
+    document.querySelector('#paymentModal .modal-title').textContent =
+      pay ? '✏️ 支払いを編集' : '💳 支払いを記録';
+    openModal('paymentModal');
+  }
+  function openEditPayModal(id) { openPaymentModal(id); }
+  function toggleChip(el) { el.classList.toggle('selected'); }
+
+  function recordPayment() {
+    if (!currentCode) return;
+    var date = $('payDate').value;
+    var memo = $('payMemo').value.trim();
+    var payerId = $('payPayer').value;
+    var amount = parseFloat($('payAmount').value);
+    if (!date) { alert('日付を入力してください'); return; }
+    if (!amount || amount <= 0) { alert('金額を入力してください'); return; }
+    var chips = Array.prototype.slice.call(
+      document.querySelectorAll('#payParticipants .chip.selected'));
+    var ids = chips.map(function (el) { return el.dataset.id; });
+    if (ids.length === 0) { alert('参加者を選択してください'); return; }
+    // v1 と同じく、支払った人は必ず割り勘対象に含める
+    if (ids.indexOf(payerId) < 0) ids.push(payerId);
+    var participants = {};
+    ids.forEach(function (id) { participants[id] = true; });
+
+    var payload = { date: date, memo: memo, payerId: payerId, amount: amount, participants: participants };
+    var p = editingPaymentId
+      ? Store.updatePayment(currentCode, editingPaymentId, payload)
+      : Store.addPayment(currentCode, payload);
+    var wasEdit = !!editingPaymentId;
+    editingPaymentId = null;
+    closeModal('paymentModal');
+    p.catch(fail(wasEdit ? '支払いを更新できませんでした' : '支払いを記録できませんでした'));
+  }
+
+  function deletePay(id) {
+    if (!currentCode) return;
+    if (!confirm('この記録を削除しますか？')) return;
+    Store.removePayment(currentCode, id).catch(fail('削除できませんでした'));
+  }
+
+  // ---- 清算（工事1 では送金リストの表示のみ） --------------------------
+
+  function openSettlement() {
+    if (!currentGroup) return;
+    var members = memberList(currentGroup);
+    var txns = Calc.calcSettlement(members, paymentList(currentGroup));
+    var el = $('settlementContent');
+    if (txns.length === 0) {
+      el.innerHTML = '<div class="settlement-empty">🎉 全員の貸し借りはありません！</div>';
+    } else {
+      el.innerHTML = '<div class="settlement-list">' + txns.map(function (t) {
+        return '<div class="settlement-item"><span class="settlement-from">' + esc(t.from) + '</span>' +
+          '<span class="settlement-arrow">&#x2192;</span>' +
+          '<span class="settlement-to">' + esc(t.to) + '</span>' +
+          '<span class="settlement-amount">' + money(t.amount) + '</span></div>';
+      }).join('') + '</div>' +
+      '<div class="settlement-note">※ この清算はまだ記録されません（清算の記録は工事3 で追加）</div>';
+    }
+    openModal('settlementModal');
+  }
+
+  // ---- グループ設定 ---------------------------------------------------
+
+  function openSettings() {
+    if (!currentGroup) return;
+    editMembers = memberList(currentGroup).map(function (m) {
+      return { id: m.id, name: m.name, order: m.order, isNew: false };
+    });
+    $('editGroupName').value = currentGroup.meta && currentGroup.meta.name ? currentGroup.meta.name : '';
+    $('editMemberInput').value = '';
+    $('shareCodeBox').textContent = currentCode;
+    renderEditMemberList();
+    openModal('settingsModal');
+  }
+
+  function renderEditMemberList() {
+    $('editMemberList').innerHTML = editMembers.map(function (m, i) {
+      return '<div class="member-row">' +
+        '<input class="form-input member-row-input" value="' + esc(m.name) + '" ' +
+        'oninput="setEditMemberName(' + i + ', this.value)">' +
+        '<button class="member-row-del" title="削除" onclick="removeEditMember(' + i + ')">&#x2715;</button>' +
+        '</div>';
+    }).join('');
+  }
+  function setEditMemberName(i, v) { if (editMembers[i]) editMembers[i].name = v; }
+  function removeEditMember(i) {
+    var m = editMembers[i];
+    if (!m) return;
+    if (!m.isNew && usedInPayments(m.id)) {
+      if (!confirm('「' + m.name + '」には支払い記録があります。削除すると履歴の名前が「?」になります。削除しますか？')) return;
+    }
+    editMembers.splice(i, 1);
+    renderEditMemberList();
+  }
+  function usedInPayments(mid) {
+    return paymentList(currentGroup).some(function (p) {
+      return p.payerId === mid || p.participants.indexOf(mid) >= 0;
+    });
+  }
+  function addEditMember() {
+    var el = $('editMemberInput');
+    var name = el.value.trim();
+    if (!name) return;
+    editMembers.push({ id: null, name: name, order: editMembers.length, isNew: true });
+    el.value = '';
+    renderEditMemberList(); el.focus();
+  }
+
+  function saveSettings() {
+    if (!currentCode || !currentGroup) return;
+    var name = $('editGroupName').value.trim();
+    if (!name) { alert('グループ名を入力してください'); return; }
+    var cleaned = editMembers.filter(function (m) { return m.name.trim() !== ''; });
+    if (cleaned.length < 2) { alert('メンバーを2人以上にしてください'); return; }
+
+    var before = memberList(currentGroup);
+    var jobs = [];
+
+    if (!currentGroup.meta || currentGroup.meta.name !== name) {
+      jobs.push(Store.setGroupName(currentCode, name));
+    }
+    cleaned.forEach(function (m, i) {
+      var nm = m.name.trim();
+      if (m.isNew || !m.id) {
+        jobs.push(Store.addMember(currentCode, nm, i));
+        return;
+      }
+      var old = before.filter(function (b) { return b.id === m.id; })[0];
+      if (old && old.name !== nm) jobs.push(Store.renameMember(currentCode, m.id, nm));
+    });
+    before.forEach(function (b) {
+      var still = cleaned.some(function (m) { return m.id === b.id; });
+      if (!still) jobs.push(Store.removeMember(currentCode, b.id));
+    });
+
+    closeModal('settingsModal');
+    Promise.all(jobs).catch(fail('設定を保存できませんでした'));
+  }
+
+  function copyShareCode() {
+    var code = currentCode;
+    if (!code) return;
+    var done = function () {
+      var el = $('shareCodeBox');
+      el.textContent = 'コピーしました！';
+      setTimeout(function () { el.textContent = code; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(done, function () { toast('コピーできませんでした（手で選択してください）', 'error'); });
+    } else {
+      toast('この端末では自動コピーができません。コードを手で選択してください', 'error');
+    }
+  }
+
+  function leaveGroup() {
+    if (!currentCode) return;
+    var name = currentGroup && currentGroup.meta ? currentGroup.meta.name : currentCode;
+    if (!confirm('「' + name + '」から退出しますか？\n自分の一覧から消えるだけで、グループのデータは残ります。\n共有コードがあればまた参加できます。')) return;
+    var code = currentCode;
+    Store.stopWatchGroup();
+    currentCode = null; currentGroup = null; seenPaymentAt = null;
+    try { localStorage.removeItem(LS_LAST_GROUP); } catch (e) { /* noop */ }
+    closeModal('settingsModal');
+    render();
+    Store.leaveGroup(code).then(function () { toast('退出しました'); })
+      .catch(fail('退出できませんでした'));
+  }
+
+  function deleteGroup() {
+    if (!currentCode) return;
+    var name = currentGroup && currentGroup.meta ? currentGroup.meta.name : currentCode;
+    if (!confirm('「' + name + '」を削除しますか？\nメンバー全員の画面から消え、支払い記録もすべて削除されます。\nこの操作は取り消せません。')) return;
+    var code = currentCode;
+    Store.stopWatchGroup();
+    currentCode = null; currentGroup = null; seenPaymentAt = null;
+    try { localStorage.removeItem(LS_LAST_GROUP); } catch (e) { /* noop */ }
+    closeModal('settingsModal');
+    render();
+    Store.deleteGroup(code).then(function () { toast('グループを削除しました'); })
+      .catch(fail('削除できませんでした'));
+  }
+
+  // ---- 接続状態 -------------------------------------------------------
+
+  function setConnected(ok) {
+    var dot = $('connDot');
+    if (!dot) return;
+    dot.classList.toggle('off', !ok);
+    dot.title = ok ? 'オンライン（同期中）' : 'オフライン（再接続を待っています）';
+  }
+
+  // ---- 起動 -----------------------------------------------------------
+
+  function start() {
+    if (!root.KKFirebase || !root.KKFirebase.ready) {
+      hideBoot();
+      $('loginScreen').hidden = false;
+      $('appLayout').hidden = true;
+      var box = $('loginError');
+      if (box) {
+        box.textContent = 'Firebase を読み込めませんでした。通信環境を確認して再読み込みしてください。';
+        box.hidden = false;
+      }
+      return;
+    }
+
+    document.querySelectorAll('.modal-overlay').forEach(function (ov) {
+      ov.addEventListener('click', function (e) {
+        if (e.target === ov) ov.classList.remove('open');
+      });
+    });
+
+    Store.watchConnection(setConnected);
+
+    Auth.onChange(function (user) {
+      me = user;
+      if (!user) {
+        showLoggedOut();
+        myGroups = {}; metas = {};
+        Object.keys(metaOff).forEach(function (c) { metaOff[c](); });
+        metaOff = {};
+        currentCode = null; currentGroup = null; seenPaymentAt = null;
+        render();
+        return;
+      }
+      showLoggedIn(user);
+      Store.saveProfile(user).catch(function (e) { console.error('profile', e); });
+      Store.watchMyGroups(function (groups) {
+        myGroups = groups;
+        syncMetaWatchers();
+        renderSidebar();
+        // 前回開いていたグループを復元する
+        if (!currentCode) {
+          var last = null;
+          try { last = localStorage.getItem(LS_LAST_GROUP); } catch (e) { last = null; }
+          if (last && myGroups[last]) selectGroup(last);
+          else renderMain();
+        } else if (!myGroups[currentCode]) {
+          // 退出などで一覧から消えた
+          Store.stopWatchGroup();
+          currentCode = null; currentGroup = null; seenPaymentAt = null;
+          render();
+        }
+      }, fail('グループ一覧を読み込めませんでした'));
+      render();
+    });
+
+    render();
+  }
+
+  // ---- index.html の onclick から呼ぶものを global に置く ---------------
+
+  root.KKUI = { toast: toast, render: render };
+
+  root.openModal = openModal;
+  root.closeModal = closeModal;
+  root.toggleSidebar = toggleSidebar;
+  root.closeSidebar = closeSidebar;
+  root.doLogin = doLogin;
+  root.doLogout = doLogout;
+  root.selectGroup = selectGroup;
+  root.dismissMissingGroup = dismissMissingGroup;
+  root.openNewGroupModal = openNewGroupModal;
+  root.renderNewMemberList = renderNewMemberList;
+  root.addNewMember = addNewMember;
+  root.removeNewMember = removeNewMember;
+  root.createGroup = createGroup;
+  root.openJoinModal = openJoinModal;
+  root.doJoin = doJoin;
+  root.openPaymentModal = openPaymentModal;
+  root.openEditPayModal = openEditPayModal;
+  root.toggleChip = toggleChip;
+  root.recordPayment = recordPayment;
+  root.deletePay = deletePay;
+  root.openSettlement = openSettlement;
+  root.openSettings = openSettings;
+  root.renderEditMemberList = renderEditMemberList;
+  root.setEditMemberName = setEditMemberName;
+  root.addEditMember = addEditMember;
+  root.removeEditMember = removeEditMember;
+  root.saveSettings = saveSettings;
+  root.copyShareCode = copyShareCode;
+  root.leaveGroup = leaveGroup;
+  root.deleteGroup = deleteGroup;
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})(window);
