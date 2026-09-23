@@ -27,6 +27,11 @@
 - ロジックに触る前に、現状の挙動を固定するテストを先に書く
 - 直したバグは再現テストを追加してから直す
 
+## この PC の環境（2026-09-23 工事1 で判明）
+- Python は `py -X utf8 …` で呼ぶ（`python` は Microsoft Store のダミーで動かない）。Node.js は v24 導入済み
+- ローカルサーバは `py -m http.server 8000`
+- 配線チェック `py -X utf8 tools/check_wiring.py`、画面の通し確認 `py -X utf8 tools/make_uitest.py` → `http://localhost:8000/_uitest_tmp.html`（タイトルが `UI-SMOKE-PASS` なら通過）を、工事の終わりに毎回回す
+
 ## 日本語 Windows での注意
 - 日本語を含む文字列を `echo` やコンソールのリダイレクトでファイルに書かない（cp932 で化ける）
 - .bat / .cmd を作らない・使わない
