@@ -1,0 +1,115 @@
+{
+  "groups": [
+    {
+      "id": "g-testA",
+      "name": "テスト移行A",
+      "members": [
+        { "id": "mA1", "name": "テスト太郎" },
+        { "id": "mA2", "name": "テスト花子" },
+        { "id": "mA3", "name": "テスト次郎" }
+      ]
+    },
+    {
+      "id": "g-testB",
+      "name": "テスト移行B",
+      "members": [
+        { "id": "mB1", "name": "テスト三郎" },
+        { "id": "mB2", "name": "テスト四郎" }
+      ]
+    },
+    {
+      "id": "g-testDeleted",
+      "name": "テスト削除済みグループ",
+      "members": [
+        { "id": "mD1", "name": "テスト五郎" },
+        { "id": "mD2", "name": "テスト六郎" }
+      ]
+    }
+  ],
+  "payments": [
+    {
+      "id": "p-a1",
+      "groupId": "g-testA",
+      "date": "2026-08-01",
+      "memo": "テスト宿泊費",
+      "payerId": "mA1",
+      "amount": 30000,
+      "participants": ["mA1", "mA2", "mA3"]
+    },
+    {
+      "id": "p-a2",
+      "groupId": "g-testA",
+      "date": "2026-08-01",
+      "memo": "テスト夕食",
+      "payerId": "mA2",
+      "amount": 12800,
+      "participants": ["mA1", "mA2", "mA3"]
+    },
+    {
+      "id": "p-a3",
+      "groupId": "g-testA",
+      "date": "2026-08-02",
+      "memo": "テストレンタカー",
+      "payerId": "mA3",
+      "amount": 8500,
+      "participants": ["mA1", "mA3"]
+    },
+    {
+      "id": "p-a4",
+      "groupId": "g-testA",
+      "date": "2026-08-02",
+      "memo": "テスト昼食",
+      "payerId": "mA1",
+      "amount": 4200,
+      "participants": ["mA1", "mA2", "mA3"]
+    },
+    {
+      "id": "p-a5-deleted",
+      "groupId": "g-testA",
+      "date": "2026-08-02",
+      "memo": "テスト取り消した支払い（取り込まれないのが正解）",
+      "payerId": "mA2",
+      "amount": 99999,
+      "participants": ["mA1", "mA2", "mA3"]
+    },
+    {
+      "id": "p-b1",
+      "groupId": "g-testB",
+      "date": "2026-09-10",
+      "memo": "テスト飲み会",
+      "payerId": "mB1",
+      "amount": 9600,
+      "participants": ["mB1", "mB2"]
+    },
+    {
+      "id": "p-b2",
+      "groupId": "g-testB",
+      "date": "2026-09-11",
+      "memo": "テストタクシー",
+      "payerId": "mB2",
+      "amount": 2130,
+      "participants": ["mB1", "mB2"]
+    },
+    {
+      "id": "p-orphan",
+      "groupId": "g-nowhere",
+      "date": "2026-09-12",
+      "memo": "テスト孤児支払い（取り込まれないのが正解）",
+      "payerId": "mX1",
+      "amount": 1500,
+      "participants": ["mX1"]
+    },
+    {
+      "id": "p-d1",
+      "groupId": "g-testDeleted",
+      "date": "2026-07-01",
+      "memo": "テスト削除済みグループの支払い（取り込まれないのが正解）",
+      "payerId": "mD1",
+      "amount": 7777,
+      "participants": ["mD1", "mD2"]
+    }
+  ],
+  "deletedGroupIds": ["g-testDeleted"],
+  "deletedPaymentIds": ["p-a5-deleted"],
+  "updatedAt": 1789000000000
+}
