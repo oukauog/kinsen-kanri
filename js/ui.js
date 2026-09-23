@@ -16,6 +16,8 @@
   var Auth = root.KKAuth;
   var Migrate = root.Migrate;
   var Settle = root.Settle;
+  var Csv = root.Csv;
+  var Env = root.Env;
 
   var LS_LAST_GROUP = 'kk_v2_lastGroup';   // v2 が使う localStorage は kk_v2_* のみ
   var LS_BALANCE_MODE = 'kk_v2_balanceMode';
@@ -308,6 +310,7 @@
         '<div class="group-actions">' +
           '<button class="btn btn-primary" onclick="openPaymentModal()">&#xFF0B; 支払いを記録</button>' +
           '<button class="btn btn-secondary" onclick="openSettlement()">清算</button>' +
+          '<button class="btn btn-secondary" onclick="openExportModal()">CSV出力</button>' +
           '<button class="btn btn-secondary" onclick="openSettings()">設定</button>' +
         '</div></div>' +
       '<div class="section-head">' +
@@ -878,6 +881,114 @@
     }).catch(fail('清算を取り消せませんでした'));
   }
 
+  // ---- CSV 出力（工事4a）----------------------------------------------
+
+  /** v1 と同じやり方でファイルを落とす（Blob + a[download]） */
+  function downloadCsv(text, filename) {
+    var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function groupNameForFile() {
+    var n = currentGroup && currentGroup.meta && currentGroup.meta.name
+      ? currentGroup.meta.name : 'グループ';
+    return Csv.safeFileName(n);
+  }
+
+  /** 支払い一覧の CSV（本文とファイル名）。テストから中身を見られるように分けてある */
+  function buildPaymentsCsv() {
+    if (!currentGroup) return null;
+    return {
+      text: Csv.paymentsCsv(currentGroup, currentGroup.payments || {},
+        currentGroup.settlements || {}),
+      name: groupNameForFile() + '_支払い_' + Csv.stamp() + '.csv'
+    };
+  }
+
+  /** 残高の CSV。いま画面に出ている表示（未清算のみ / 累計）で出す */
+  function buildBalancesCsv() {
+    if (!currentGroup) return null;
+    return {
+      text: Csv.balancesCsv(currentGroup, currentGroup.payments || {}, balanceMode),
+      name: groupNameForFile() + '_残高_' + Csv.stamp() + '.csv'
+    };
+  }
+
+  function openExportModal() {
+    if (!currentGroup) return;
+    $('exportBtns').innerHTML =
+      '<button class="export-btn-row" onclick="exportPaymentsCsv()">' +
+        '<span class="export-btn-icon">&#x1F4CB;</span>' +
+        '<div><span class="export-btn-label">支払い一覧（CSV）</span>' +
+        '<span class="export-btn-desc">日付・メモ・支払った人・金額・割り勘対象・1人あたり・清算状態</span>' +
+        '</div></button>' +
+      '<button class="export-btn-row" onclick="exportBalancesCsv()">' +
+        '<span class="export-btn-icon">&#x1F4CA;</span>' +
+        '<div><span class="export-btn-label">残高（CSV）</span>' +
+        '<span class="export-btn-desc">メンバーごとの払った合計・負担分・残高</span>' +
+        '</div></button>' +
+      '<div class="export-note">残高 CSV は、いまの表示（<strong>' +
+      (balanceMode === 'all' ? '累計' : '未清算のみ') + '</strong>）で出します。' +
+      '切り替えたいときは、いったん閉じて残高の右上で切り替えてください。</div>';
+    openModal('exportModal');
+  }
+
+  function exportPaymentsCsv() {
+    var r = buildPaymentsCsv();
+    if (!r) return null;
+    downloadCsv(r.text, r.name);
+    closeModal('exportModal');
+    toast('支払い一覧を書き出しました: ' + r.name);
+    return r;
+  }
+
+  function exportBalancesCsv() {
+    var r = buildBalancesCsv();
+    if (!r) return null;
+    downloadCsv(r.text, r.name);
+    closeModal('exportModal');
+    toast('残高を書き出しました: ' + r.name);
+    return r;
+  }
+
+  // ---- アプリ内ブラウザの案内（工事4a、§5.1）--------------------------
+
+  /** LINE や Discord の中のブラウザなら案内を出す。ログインボタンは残したまま */
+  function checkInAppBrowser() {
+    var box = $('inAppNotice');
+    if (!box || !Env) return false;
+    var inApp = Env.isInAppBrowser(navigator.userAgent);
+    box.hidden = !inApp;
+    return inApp;
+  }
+
+  /** 開いている URL をコピー。できない環境では画面に出して手で選べるようにする */
+  function copyPageUrl() {
+    var url = location.href;
+    var show = function () {
+      var el = $('inAppUrl');
+      if (el) { el.textContent = url; el.hidden = false; }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        var btn = $('btnCopyUrl');
+        if (btn) {
+          btn.textContent = 'コピーしました！';
+          setTimeout(function () { btn.textContent = 'URL をコピー'; }, 1800);
+        }
+      }, show);
+    } else {
+      show();
+    }
+  }
+
   // ---- グループ設定 ---------------------------------------------------
 
   function openSettings() {
@@ -1017,6 +1128,7 @@
   function start() {
     if (!root.KKFirebase || !root.KKFirebase.ready) {
       hideBoot();
+      checkInAppBrowser();
       $('loginScreen').hidden = false;
       $('appLayout').hidden = true;
       var box = $('loginError');
@@ -1026,6 +1138,8 @@
       }
       return;
     }
+
+    checkInAppBrowser();
 
     document.querySelectorAll('.modal-overlay').forEach(function (ov) {
       ov.addEventListener('click', function (e) {
@@ -1118,6 +1232,13 @@
   root.setBalanceMode = setBalanceMode;
   root.lockedNotice = lockedNotice;
   root.onPendingToggle = onPendingToggle;
+  root.openExportModal = openExportModal;
+  root.exportPaymentsCsv = exportPaymentsCsv;
+  root.exportBalancesCsv = exportBalancesCsv;
+  root.buildPaymentsCsv = buildPaymentsCsv;
+  root.buildBalancesCsv = buildBalancesCsv;
+  root.copyPageUrl = copyPageUrl;
+  root.checkInAppBrowser = checkInAppBrowser;
   root.openSettings = openSettings;
   root.renderEditMemberList = renderEditMemberList;
   root.setEditMemberName = setEditMemberName;
