@@ -216,6 +216,16 @@
         check('ログアウトでログイン画面に戻る',
           $('loginScreen').hidden === false && $('appLayout').hidden === true);
         check('想定外の alert が出ていない', alerts.length === 0, alerts.join(' / '));
+
+        // ログインの失敗（iPhone Safari の auth/missing-initial-state など）は
+        // このトーストでしか利用者に見えないので、表示経路が生きているかを見る
+        root.KKUI.toast('ログインに失敗しました: Firebase: Unable to process request ' +
+          'due to missing initial state. (auth/missing-initial-state).', 'error');
+        var toasts = document.querySelectorAll('.toast-box .toast.toast-error');
+        var last = toasts[toasts.length - 1];
+        check('ログイン失敗の文言が赤いトーストで画面に出る',
+          !!last && last.textContent.indexOf('missing initial state') >= 0,
+          last ? last.textContent : '(トーストが出ていない)');
       })
       .catch(function (e) {
         results.push('FAIL 途中で落ちた :: ' + (e && e.message ? e.message : e) +
