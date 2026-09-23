@@ -215,6 +215,149 @@
       .then(function () {
         check('ログアウトでログイン画面に戻る',
           $('loginScreen').hidden === false && $('appLayout').hidden === true);
+        root.KKAuth._signIn();
+        return wait(40);
+      })
+
+      // ── オフラインの帯（§5.7）──
+      .then(function () {
+        check('つながっているときは帯が出ていない', $('offlineBanner').hidden === true);
+        root.KKStore._setConnected(false);
+        return wait(20);
+      })
+      .then(function () {
+        check('オフラインになると帯が出る',
+          $('offlineBanner').hidden === false &&
+          $('offlineBanner').textContent.indexOf('オフライン') >= 0);
+        check('オフラインで接続ドットが灰色になる',
+          $('connDot').className.indexOf('off') >= 0);
+        root.KKStore._setConnected(true);
+        return wait(20);
+      })
+      .then(function () {
+        check('つながり直すと帯が消える', $('offlineBanner').hidden === true);
+        check('つながり直すと接続ドットが戻る', $('connDot').className.indexOf('off') < 0);
+
+        // ── 書き込みが失敗したらトーストで知らせる（§5.7）──
+        root.KKStore._seedGroup('FAIL01', 'テスト失敗確認', ['ら', 'り']);
+        return root.KKStore.joinGroup('FAIL01').then(function () { return wait(60); });
+      })
+      .then(function () {
+        root.selectGroup('FAIL01');
+        return wait(60);
+      })
+      .then(function () {
+        root.KKStore._failNextWrite();
+        root.openPaymentModal();
+        $('payMemo').value = '失敗するはずの支払い';
+        $('payAmount').value = '1000';
+        root.recordPayment();
+        return wait(80);
+      })
+      .then(function () {
+        var toasts = document.querySelectorAll('.toast-box .toast.toast-error');
+        var last = toasts[toasts.length - 1];
+        check('書き込みが失敗すると赤いトーストで理由が出る',
+          !!last && last.textContent.indexOf('支払いを記録できませんでした') >= 0 &&
+          last.textContent.indexOf('権限がありません') >= 0,
+          last ? last.textContent : '(トーストが出ていない)');
+        check('失敗した支払いは履歴に入らない',
+          $('main').textContent.indexOf('失敗するはずの支払い') < 0);
+
+        // ── 旧バージョンからの取り込み（工事2）──
+        root.KKStore._seedRoom('TESTMG', {
+          groups: [
+            { id: 'gA', name: 'テスト移行A', members: [{ id: 'a1', name: 'あ' }, { id: 'a2', name: 'い' }, { id: 'a3', name: 'う' }] },
+            { id: 'gB', name: 'テスト移行B', members: [{ id: 'b1', name: 'か' }, { id: 'b2', name: 'き' }] },
+            { id: 'gDel', name: 'テスト消した会', members: [{ id: 'd1', name: 'さ' }] }
+          ],
+          payments: [
+            { id: 'pa1', groupId: 'gA', date: '2026-08-01', memo: 'テスト宿', payerId: 'a1', amount: 30000, participants: ['a1', 'a2', 'a3'] },
+            { id: 'pa2', groupId: 'gA', date: '2026-08-02', memo: 'テスト昼食', payerId: 'a2', amount: 4500, participants: ['a1', 'a2'] },
+            { id: 'pa3-del', groupId: 'gA', date: '2026-08-03', memo: 'テスト取り消し', payerId: 'a1', amount: 9999, participants: ['a1', 'a2', 'a3'] },
+            { id: 'pb1', groupId: 'gB', date: '2026-09-01', memo: 'テスト飲み会', payerId: 'b1', amount: 8000, participants: ['b1', 'b2'] },
+            { id: 'porphan', groupId: 'gNowhere', date: '2026-09-02', memo: 'テスト孤児', payerId: 'x', amount: 100, participants: ['x'] }
+          ],
+          deletedGroupIds: ['gDel'],
+          deletedPaymentIds: ['pa3-del']
+        });
+        root.openJoinModal();
+        $('joinCodeInput').value = 'TESTMG';
+        root.doJoin();
+        return wait(150);
+      })
+      .then(function () {
+        check('旧ルームが見つかると取り込みの選択ダイアログが開く',
+          isOpen('migrateModal') && !isOpen('joinGroupModal'));
+        check('取り込めるグループだけが選択肢に出る（削除済みは出ない）',
+          $('migrateContent').querySelectorAll('input[name="migratePick"]').length === 2 &&
+          $('migrateContent').textContent.indexOf('テスト消した会') < 0,
+          $('migrateContent').textContent);
+        check('選択肢にメンバー数と支払い件数が出る',
+          $('migrateContent').textContent.indexOf('メンバー 3 人') >= 0 &&
+          $('migrateContent').textContent.indexOf('支払い 2 件') >= 0,
+          $('migrateContent').textContent);
+        check('除外する件数が説明に出る',
+          $('migrateContent').textContent.indexOf('削除済みの支払い 1 件') >= 0 &&
+          $('migrateContent').textContent.indexOf('グループが分からない支払い 1 件') >= 0);
+
+        // 2 番目（テスト移行B）にコードを引き継がせる
+        var radios = $('migrateContent').querySelectorAll('input[name="migratePick"]');
+        radios[1].checked = true;
+        root.confirmMigrate();
+        return wait(250);
+      })
+      .then(function () {
+        check('取り込み結果のダイアログが出る', isOpen('migrateResultModal'));
+        var t = $('migrateResultContent').textContent;
+        check('結果に両方のグループ名が出る',
+          t.indexOf('テスト移行A') >= 0 && t.indexOf('テスト移行B') >= 0, t);
+        check('選んだグループが元のコードを引き継ぐ',
+          t.indexOf('TESTMG') >= 0 && root.KKStore._data.groups.TESTMG.meta.name === 'テスト移行B',
+          root.KKStore._data.groups.TESTMG ? root.KKStore._data.groups.TESTMG.meta.name : '(無い)');
+        check('もう一方には新しいコードが発行される',
+          $('migrateResultContent').querySelectorAll('.migrate-result-code').length === 2, t);
+        check('取り込んだ支払いの件数が正しい（削除済み・孤児を除く）',
+          Object.keys(root.KKStore._data.groups.TESTMG.payments).length === 1,
+          'TESTMG=' + Object.keys(root.KKStore._data.groups.TESTMG.payments).length);
+        check('meta に移行元が記録される',
+          root.KKStore._data.groups.TESTMG.meta.migratedFrom === 'rooms/TESTMG',
+          root.KKStore._data.groups.TESTMG.meta.migratedFrom);
+        root.closeMigrateResult();
+        return wait(120);
+      })
+      .then(function () {
+        check('閉じると取り込んだグループが開く',
+          $('main').textContent.indexOf('テスト移行B') >= 0, $('main').textContent.slice(0, 80));
+        check('取り込んだ支払いが履歴に出る',
+          $('main').textContent.indexOf('テスト飲み会') >= 0 &&
+          $('main').textContent.indexOf('8,000') >= 0);
+        check('もう一方のグループもサイドバーに並ぶ',
+          $('groupList').textContent.indexOf('テスト移行A') >= 0, $('groupList').textContent);
+
+        // ── 2 回目は移行が走らない（通常参加になる）──
+        return root.KKStore.leaveGroup('TESTMG').then(function () { return wait(120); });
+      })
+      .then(function () {
+        root.openJoinModal();
+        $('joinCodeInput').value = 'TESTMG';
+        root.doJoin();
+        return wait(200);
+      })
+      .then(function () {
+        check('2 回目のコード参加では移行ダイアログが出ない', !isOpen('migrateModal'));
+        check('2 回目は通常参加になる（グループが開く）',
+          $('main').textContent.indexOf('テスト移行B') >= 0);
+        check('2 回目の参加で中身が増えない（二重取り込みが無い）',
+          Object.keys(root.KKStore._data.groups.TESTMG.payments).length === 1,
+          'payments=' + Object.keys(root.KKStore._data.groups.TESTMG.payments).length);
+
+        root.doLogout();
+        return wait(120);
+      })
+      .then(function () {
+        check('ログアウトでログイン画面に戻る（2 回目）',
+          $('loginScreen').hidden === false && $('appLayout').hidden === true);
         check('想定外の alert が出ていない', alerts.length === 0, alerts.join(' / '));
 
         // ログインの失敗（iPhone Safari の auth/missing-initial-state など）は

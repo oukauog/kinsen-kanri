@@ -11,6 +11,10 @@
   'use strict';
 
   var data = { users: {}, groups: {} };
+  var rooms = {};                 // 旧バージョンのルーム（工事2 の移行確認用）
+  var connCb = null;              // watchConnection のコールバック
+  var writeErrCb = null;          // onWriteError のコールバック
+  var failNext = false;           // 次の書き込みをわざと失敗させる
   var watchers = { myGroups: null, group: {}, meta: {} };
   var USER = { uid: 'u-test', displayName: 'テスト太郎', photoURL: '', email: 't@example.com' };
 
@@ -35,6 +39,15 @@
 
   var id = 0;
   function nextId(p) { id++; return p + id; }
+
+  // store.js の wrapWrite と同じふるまい: 通知して、印を付けて、拒否する
+  function reportFail(op) {
+    var err = new Error('テストのための失敗');
+    err.code = 'PERMISSION_DENIED';
+    err.__kkReported = true;
+    if (writeErrCb) writeErrCb(op, err);
+    return Promise.reject(err);
+  }
 
   root.KKFirebase = { ready: true, error: null, now: function () { return Date.now(); } };
 
@@ -118,6 +131,7 @@
       delete data.groups[code].members[mid]; notifyGroup(code); return Promise.resolve();
     },
     addPayment: function (code, p) {
+      if (failNext) { failNext = false; return reportFail('支払いを記録できませんでした'); }
       var pid = nextId('p');
       data.groups[code].payments = data.groups[code].payments || {};
       data.groups[code].payments[pid] = {
@@ -136,12 +150,44 @@
     removePayment: function (code, pid) {
       delete data.groups[code].payments[pid]; notifyGroup(code); return Promise.resolve();
     },
-    watchConnection: function (cb) { later(function () { cb(true); }); },
+    watchConnection: function (cb) { connCb = cb; later(function () { cb(true); }); },
+    onWriteError: function (fn) { writeErrCb = fn; },
+
+    // ---- 旧バージョンからの取り込み（工事2）----
+    readRoom: function (code) {
+      return Promise.resolve(rooms[code] ? clone(rooms[code]) : null);
+    },
+    allocCodes: function (n) {
+      var out = [];
+      for (var i = 0; i < n; i++) { id++; out.push('NEWC' + (10 + id)); }
+      return Promise.resolve(out);
+    },
+    migrateRoom: function (conv) {
+      if (failNext) { failNext = false; return reportFail('取り込みに失敗しました'); }
+      var migrated = [], already = [];
+      var codes = (conv && conv.order) ? conv.order : [];
+      codes.forEach(function (code) {
+        var g = conv.groups[code];
+        data.users[USER.uid] = data.users[USER.uid] || { groups: {} };
+        data.users[USER.uid].groups[code] = { joinedAt: Date.now() };
+        if (data.groups[code] && data.groups[code].meta) { already.push(code); return; }
+        data.groups[code] = {
+          meta: clone(g.meta), members: clone(g.members), payments: clone(g.payments)
+        };
+        migrated.push(code);
+      });
+      notifyMyGroups();
+      codes.forEach(notifyGroup);
+      return Promise.resolve({ migrated: migrated, already: already });
+    },
 
     // ほかの端末からの変更を模擬する（リアルタイム反映の確認用）
     _remoteAddPayment: function (code, p) {
       return root.KKStore.addPayment(code, p);
     },
+    _setConnected: function (ok) { if (connCb) connCb(ok); },
+    _failNextWrite: function () { failNext = true; },
+    _seedRoom: function (code, room) { rooms[code] = room; },
     _seedGroup: function (code, name, memberNames) {
       var members = {};
       memberNames.forEach(function (n, i) { members[nextId('m')] = { name: n, order: i }; });

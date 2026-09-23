@@ -14,6 +14,7 @@
   var Calc = root.Calc;
   var Store = root.KKStore;
   var Auth = root.KKAuth;
+  var Migrate = root.Migrate;
 
   var LS_LAST_GROUP = 'kk_v2_lastGroup';   // v2 が使う localStorage は kk_v2_* のみ
 
@@ -68,15 +69,24 @@
       kind === 'error' ? 5400 : 3000);
   }
 
-  /** Firebase の失敗を握りつぶさない（v1 の反省点。仕様書 §0-3、§5.7）*/
+  /** エラーを利用者向けの 1 行にする */
+  function errText(err) {
+    if (err && (err.code === 'PERMISSION_DENIED' || err.code === 'permission-denied')) {
+      return 'アクセスが拒否されました（権限がありません）';
+    }
+    return err && err.message ? err.message : String(err);
+  }
+
+  /**
+   * Firebase の失敗を握りつぶさない（v1 の反省点。仕様書 §0-3、§5.7）。
+   * store.js の wrapWrite が既にトーストを出したものは、印（__kkReported）で
+   * 二重表示を避ける。
+   */
   function fail(prefix) {
     return function (err) {
-      var msg = err && err.message ? err.message : String(err);
-      if (err && err.code === 'PERMISSION_DENIED') {
-        msg = 'アクセスが拒否されました（ログインし直すか、共有コードを確認してください）';
-      }
       console.error(prefix, err);
-      toast(prefix + ': ' + msg, 'error');
+      if (err && err.__kkReported) return;
+      toast(prefix + ': ' + errText(err), 'error');
     };
   }
 
@@ -391,20 +401,177 @@
     }
     fb.textContent = '確認中…';
     Store.readMeta(code).then(function (meta) {
-      if (!meta) { fb.textContent = 'そのコードのグループは見つかりませんでした'; return; }
-      if (!confirm('「' + (meta.name || '(名称未設定)') + '」に参加しますか？')) {
-        fb.textContent = '';
-        return;
+      // ① v2 のグループがある → 従来どおりの参加
+      if (meta) {
+        if (!confirm('「' + (meta.name || '(名称未設定)') + '」に参加しますか？')) {
+          fb.textContent = '';
+          return;
+        }
+        return Store.joinGroup(code).then(function () {
+          closeModal('joinGroupModal');
+          toast('「' + (meta.name || '') + '」に参加しました');
+          selectGroup(code);
+        });
       }
-      return Store.joinGroup(code).then(function () {
-        closeModal('joinGroupModal');
-        toast('「' + (meta.name || '') + '」に参加しました');
-        selectGroup(code);
+      // ② 無ければ旧バージョンのルームを 1 回だけ読む（読み取りのみ）
+      return Store.readRoom(code).then(function (room) {
+        if (!room) { fb.textContent = 'そのコードのグループは見つかりませんでした'; return; }
+        startMigration(code, room);
       });
     }).catch(function (err) {
       fb.textContent = '';
       fail('参加できませんでした')(err);
     });
+  }
+
+  // ---- 旧バージョンからの取り込み（工事2）------------------------------
+
+  var migrateCtx = null;    // { code, room, summary }
+
+  function skipText(sk) {
+    var parts = [];
+    if (sk.deletedGroups) parts.push('削除済みのグループ ' + sk.deletedGroups + ' 件');
+    if (sk.deletedPayments) parts.push('削除済みの支払い ' + sk.deletedPayments + ' 件');
+    if (sk.orphanPayments) parts.push('グループが分からない支払い ' + sk.orphanPayments + ' 件');
+    return parts.length ? parts.join('、') + ' は取り込みません。' : '';
+  }
+
+  /** 旧ルームが見つかったときの入口。1 件なら確認だけ、2 件以上なら選択ダイアログ */
+  function startMigration(code, room) {
+    var summary = Migrate.summarizeRoom(room);
+    if (summary.groups.length === 0) {
+      $('joinFeedback').textContent = 'そのコードには取り込めるグループがありませんでした';
+      return;
+    }
+    migrateCtx = { code: code, room: room, summary: summary };
+
+    if (summary.groups.length === 1) {
+      var g = summary.groups[0];
+      var msg = '旧バージョンのデータが見つかりました。\n「' + g.name +
+        '」（支払い ' + g.paymentCount + ' 件）を取り込んで参加しますか？';
+      var sk = skipText(summary.skipped);
+      if (sk) msg += '\n\n※ ' + sk;
+      if (!confirm(msg)) {
+        migrateCtx = null;
+        $('joinFeedback').textContent = '';
+        return;
+      }
+      runMigration(g.id);
+      return;
+    }
+
+    $('migrateContent').innerHTML =
+      '<p class="migrate-note">このコードには複数のグループがあります。' +
+      'コード <strong>' + esc(code) + '</strong> を引き継ぐグループを 1 つ選んでください' +
+      '（他のグループには新しいコードを発行します）。</p>' +
+      '<div class="migrate-pick-list">' +
+      summary.groups.map(function (g, i) {
+        return '<label class="migrate-pick">' +
+          '<input type="radio" name="migratePick" value="' + esc(g.id) + '"' +
+          (i === 0 ? ' checked' : '') + '>' +
+          '<span><span class="migrate-pick-name">' + esc(g.name) + '</span>' +
+          '<span class="migrate-pick-sub">メンバー ' + g.memberCount + ' 人 ・ 支払い ' +
+          g.paymentCount + ' 件</span></span></label>';
+      }).join('') + '</div>' +
+      (skipText(summary.skipped) ? '<div class="migrate-skip">※ ' +
+        esc(skipText(summary.skipped)) + '</div>' : '');
+
+    setMigrateBusy(false);
+    closeModal('joinGroupModal');
+    openModal('migrateModal');
+  }
+
+  function setMigrateBusy(busy) {
+    var btn = $('migrateConfirmBtn');
+    if (!btn) return;
+    btn.disabled = !!busy;
+    btn.textContent = busy ? '取り込み中…' : '取り込む';
+  }
+
+  function cancelMigrate() {
+    migrateCtx = null;
+    closeModal('migrateModal');
+  }
+
+  function confirmMigrate() {
+    var el = document.querySelector('#migrateContent input[name="migratePick"]:checked');
+    if (!el) { alert('グループを 1 つ選んでください'); return; }
+    runMigration(el.value);
+  }
+
+  /** 新しいコードを必要数だけ発行して変換し、書き込む */
+  function runMigration(pickGroupId) {
+    if (!migrateCtx) return;
+    var ctx = migrateCtx;
+    var need = Math.max(0, ctx.summary.groups.length - 1);
+    var me = Auth.user();
+    setMigrateBusy(true);
+    $('joinFeedback').textContent = '取り込み中…';
+
+    Store.allocCodes(need).then(function (newCodes) {
+      var conv = Migrate.convertRoom(ctx.room, {
+        code: ctx.code,
+        uid: me ? me.uid : '',
+        pickGroupId: pickGroupId,
+        newCodes: newCodes,
+        now: Date.now()
+      });
+      return Store.migrateRoom(conv).then(function (res) {
+        showMigrateResult(ctx, conv, res);
+      });
+    }).catch(function (err) {
+      setMigrateBusy(false);
+      $('joinFeedback').textContent = '';
+      fail('取り込みに失敗しました')(err);
+    });
+  }
+
+  function showMigrateResult(ctx, conv, res) {
+    var already = res && res.already ? res.already : [];
+    $('migrateResultContent').innerHTML =
+      '<p class="migrate-note">旧バージョンのデータを取り込みました。' +
+      '新しいコードは、いっしょに使う人に渡してください。</p>' +
+      '<div class="migrate-result-list">' +
+      conv.order.map(function (code) {
+        var g = conv.groups[code];
+        var tag = already.indexOf(code) >= 0
+          ? '<span class="migrate-result-tag">（すでに取り込み済みでした。参加のみ）</span>' : '';
+        return '<div class="migrate-result-item">' +
+          '<div class="migrate-result-name">' + esc(g.meta.name) + tag + '</div>' +
+          '<span class="migrate-result-code" onclick="copyCode(\'' + code + '\')" ' +
+          'title="タップでコピー">' + code + '</span>' +
+          '<div class="migrate-pick-sub">メンバー ' + Object.keys(g.members || {}).length +
+          ' 人 ・ 支払い ' + Object.keys(g.payments || {}).length + ' 件</div>' +
+          '</div>';
+      }).join('') + '</div>' +
+      (skipText(ctx.summary.skipped) ? '<div class="migrate-skip">※ ' +
+        esc(skipText(ctx.summary.skipped)) + '</div>' : '');
+
+    setMigrateBusy(false);
+    $('joinFeedback').textContent = '';
+    closeModal('migrateModal');
+    closeModal('joinGroupModal');
+    openModal('migrateResultModal');
+  }
+
+  function closeMigrateResult() {
+    closeModal('migrateResultModal');
+    var code = migrateCtx ? migrateCtx.code : null;
+    migrateCtx = null;
+    if (code) selectGroup(code);
+  }
+
+  /** 共有コードをクリップボードへ */
+  function copyCode(code) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(function () {
+        toast('コードをコピーしました: ' + code);
+      }, function () {
+        toast('コピーできませんでした（手で選択してください）', 'error');
+      });
+    } else {
+      toast('この端末では自動コピーができません。コードを手で選択してください', 'error');
+    }
   }
 
   // ---- 支払い ---------------------------------------------------------
@@ -616,9 +783,13 @@
 
   function setConnected(ok) {
     var dot = $('connDot');
-    if (!dot) return;
-    dot.classList.toggle('off', !ok);
-    dot.title = ok ? 'オンライン（同期中）' : 'オフライン（再接続を待っています）';
+    if (dot) {
+      dot.classList.toggle('off', !ok);
+      dot.title = ok ? 'オンライン（同期中）' : 'オフライン（再接続を待っています）';
+    }
+    // 画面上部の細い帯（§5.7）。書いた内容は SDK が再接続時に送る
+    var banner = $('offlineBanner');
+    if (banner) banner.hidden = !!ok;
   }
 
   // ---- 起動 -----------------------------------------------------------
@@ -642,12 +813,24 @@
       });
     });
 
+    // 書き込みの失敗は、どこから呼ばれたものでも必ずここでトーストになる（§5.7）
+    Store.onWriteError(function (op, err) {
+      toast(op + ': ' + errText(err), 'error');
+    });
+
     Store.watchConnection(setConnected);
 
     Auth.onChange(function (user) {
       me = user;
       if (!user) {
+        // 認証切れ（期限切れ・別端末でのログアウト）でもここに来る。
+        // 監視を残すと権限エラーが出続けるので、必ず外す
+        Store.stopWatchMyGroups();
+        Store.stopWatchGroup();
         showLoggedOut();
+        migrateCtx = null;
+        closeModal('migrateModal');
+        closeModal('migrateResultModal');
         myGroups = {}; metas = {};
         Object.keys(metaOff).forEach(function (c) { metaOff[c](); });
         metaOff = {};
@@ -699,6 +882,10 @@
   root.createGroup = createGroup;
   root.openJoinModal = openJoinModal;
   root.doJoin = doJoin;
+  root.confirmMigrate = confirmMigrate;
+  root.cancelMigrate = cancelMigrate;
+  root.closeMigrateResult = closeMigrateResult;
+  root.copyCode = copyCode;
   root.openPaymentModal = openPaymentModal;
   root.openEditPayModal = openEditPayModal;
   root.toggleChip = toggleChip;

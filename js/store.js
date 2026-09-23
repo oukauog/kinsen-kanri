@@ -16,6 +16,9 @@
  *     今から書いておくだけ
  *   ・セキュリティルールの都合上、グループ作成・参加はどちらも
  *     「先に users/{uid}/groups/{code} を書いてから groups/{code} を触る」順序が必須
+ *   ・旧パス rooms/{code} は「コードで参加したとき 1 回だけ読む」以外に触らない。
+ *     書き込みは禁止（友人の実データ。工事2 の移行でも読むだけ）
+ *   ・書き込みは wrapWrite で包み、失敗を必ず onWriteError に通す（§5.7）
  */
 (function (root) {
   'use strict';
@@ -52,15 +55,43 @@
 
   function ref(path) { requireReady(); return FB.db.ref(path); }
 
+  // ---- 書き込みエラーの拾い上げ（§5.7）--------------------------------
+
+  var writeErrorHandler = null;
+
+  /** 書き込みが失敗したときに呼ばれる関数を登録する（ui.js がトーストを出す） */
+  function onWriteError(fn) { writeErrorHandler = fn; }
+
+  /**
+   * 書き込みの Promise を包んで、失敗を必ず 1 か所に通す。
+   * 呼び出し側の .catch もそのまま動くように、エラーは再送出する。
+   * 二重にトーストしないよう、通知済みの印を付ける。
+   * @param {string} op 失敗したときに出す日本語の操作名
+   */
+  function wrapWrite(op, p) {
+    return p.catch(function (err) {
+      if (err && !err.__kkReported) {
+        err.__kkReported = true;
+        if (writeErrorHandler) {
+          try { writeErrorHandler(op, err); } catch (e) { console.error(e); }
+        } else {
+          console.error(op, err);
+        }
+      }
+      throw err;
+    });
+  }
+
   // ---- プロフィール ---------------------------------------------------
 
   function saveProfile(user) {
     if (!user) return Promise.resolve();
-    return ref('users/' + user.uid + '/profile').set({
-      displayName: user.displayName || '',
-      photoURL: user.photoURL || '',
-      updatedAt: FB.now()
-    });
+    return wrapWrite('プロフィールを保存できませんでした',
+      ref('users/' + user.uid + '/profile').set({
+        displayName: user.displayName || '',
+        photoURL: user.photoURL || '',
+        updatedAt: FB.now()
+      }));
   }
 
   // ---- 参加グループ一覧 -----------------------------------------------
@@ -149,7 +180,8 @@
         members[localId()] = { name: n, order: i };
       });
       // ルールが「自分の一覧に入っていること」を要求するので、先に自分を登録する
-      return ref('users/' + myUid + '/groups/' + code).set({ joinedAt: FB.now() })
+      return wrapWrite('グループを作成できませんでした',
+        ref('users/' + myUid + '/groups/' + code).set({ joinedAt: FB.now() })
         .then(function () {
           return ref('groups/' + code).update({
             meta: {
@@ -160,7 +192,7 @@
             },
             members: members
           });
-        })
+        }))
         .then(function () { return code; });
     });
   }
@@ -173,14 +205,16 @@
     var myUid = uid();
     return readMeta(code).then(function (meta) {
       if (!meta) throw new Error('そのコードのグループは見つかりませんでした');
-      return ref('users/' + myUid + '/groups/' + code).set({ joinedAt: FB.now() })
+      return wrapWrite('グループに参加できませんでした',
+        ref('users/' + myUid + '/groups/' + code).set({ joinedAt: FB.now() }))
         .then(function () { return meta; });
     });
   }
 
   /** 自分の一覧から外すだけ。グループのデータは残る */
   function leaveGroup(code) {
-    return ref('users/' + uid() + '/groups/' + code).remove();
+    return wrapWrite('退出できませんでした',
+      ref('users/' + uid() + '/groups/' + code).remove());
   }
 
   /**
@@ -191,30 +225,34 @@
    */
   function deleteGroup(code) {
     var myUid = uid();
-    return ref('groups/' + code).remove()
-      .then(function () { return ref('users/' + myUid + '/groups/' + code).remove(); });
+    return wrapWrite('グループを削除できませんでした',
+      ref('groups/' + code).remove()
+        .then(function () { return ref('users/' + myUid + '/groups/' + code).remove(); }));
   }
 
   // ---- グループの中身 -------------------------------------------------
 
   function setGroupName(code, name) {
-    return ref('groups/' + code + '/meta/name').set(name);
+    return wrapWrite('グループ名を変更できませんでした',
+      ref('groups/' + code + '/meta/name').set(name));
   }
 
   /** メンバー追加。@returns {Promise<string>} 追加したメンバー ID */
   function addMember(code, name, order) {
     var mid = localId();
-    return ref('groups/' + code + '/members/' + mid)
-      .set({ name: name, order: order })
+    return wrapWrite('メンバーを追加できませんでした',
+      ref('groups/' + code + '/members/' + mid).set({ name: name, order: order }))
       .then(function () { return mid; });
   }
 
   function renameMember(code, mid, name) {
-    return ref('groups/' + code + '/members/' + mid + '/name').set(name);
+    return wrapWrite('メンバー名を変更できませんでした',
+      ref('groups/' + code + '/members/' + mid + '/name').set(name));
   }
 
   function removeMember(code, mid) {
-    return ref('groups/' + code + '/members/' + mid).remove();
+    return wrapWrite('メンバーを削除できませんでした',
+      ref('groups/' + code + '/members/' + mid).remove());
   }
 
   /**
@@ -225,7 +263,8 @@
   function addPayment(code, p) {
     var myUid = uid();
     var pid = ref('groups/' + code + '/payments').push().key;
-    return ref('groups/' + code + '/payments/' + pid).set({
+    return wrapWrite('支払いを記録できませんでした',
+      ref('groups/' + code + '/payments/' + pid).set({
       date: p.date,
       memo: p.memo || '',
       payerId: p.payerId,
@@ -236,23 +275,118 @@
       createdBy: myUid,
       createdAt: FB.now(),
       updatedAt: FB.now()
-    }).then(function () { return pid; });
+      })).then(function () { return pid; });
   }
 
   /** 支払いの更新。触ったフィールドだけ update する（createdBy / createdAt は保つ） */
   function updatePayment(code, pid, p) {
-    return ref('groups/' + code + '/payments/' + pid).update({
-      date: p.date,
-      memo: p.memo || '',
-      payerId: p.payerId,
-      amount: p.amount,
-      participants: p.participants,
-      updatedAt: FB.now()
-    });
+    return wrapWrite('支払いを更新できませんでした',
+      ref('groups/' + code + '/payments/' + pid).update({
+        date: p.date,
+        memo: p.memo || '',
+        payerId: p.payerId,
+        amount: p.amount,
+        participants: p.participants,
+        updatedAt: FB.now()
+      }));
   }
 
   function removePayment(code, pid) {
-    return ref('groups/' + code + '/payments/' + pid).remove();
+    return wrapWrite('支払いを削除できませんでした',
+      ref('groups/' + code + '/payments/' + pid).remove());
+  }
+
+  // ---- 移行（旧 rooms からの取り込み。工事2）--------------------------
+
+  /**
+   * 旧ルームを 1 回だけ読む。**読み取り専用**。ここでも他のどこでも rooms/ には書かない。
+   * @returns {Promise<Object|null>} 旧ルームの中身（無ければ null）
+   */
+  function readRoom(code) {
+    return ref('rooms/' + code).once('value').then(function (s) { return s.val(); });
+  }
+
+  /**
+   * 重複しない新しい共有コードを n 個発行する（既存の findFreeCode を使う）。
+   * @returns {Promise<string[]>}
+   */
+  function allocCodes(n, acc) {
+    var got = acc || [];
+    if (got.length >= n) return Promise.resolve(got);
+    return findFreeCode().then(function (code) {
+      if (got.indexOf(code) >= 0) return allocCodes(n, got);   // まず起きないが念のため
+      got.push(code);
+      return allocCodes(n, got);
+    });
+  }
+
+  /**
+   * 変換済みデータ（Migrate.convertRoom の戻り値）を書き込む。
+   *
+   * 手順（ルールの都合でこの順序でないと書けない）:
+   *   1. users/{uid}/groups/{code} を登録（自分の一覧に入れる＝グループへの書き込み権限を得る）
+   *   2. groups/{code}/meta を transaction で「まだ無いときだけ」書く
+   *      → 誰かが先に移行していたら、そのグループは書かずに「参加しただけ」にする
+   *   3. meta を書けたグループにだけ members / payments を update で書く
+   *
+   * 途中で失敗したら、この呼び出しで足した users/{uid}/groups/{code} を取り消して
+   * 中途半端な状態を残さない（rooms/ には最初から何も書かない）。
+   *
+   * @param {Object} converted { groups: { code: {meta, members, payments} }, order: [code] }
+   * @returns {Promise<Object>} { migrated: [code], already: [code] }
+   *   already = 先に誰かが移行していたので中身は書かなかったコード
+   */
+  function migrateRoom(converted) {
+    var myUid = uid();
+    var codes = (converted && converted.order && converted.order.length)
+      ? converted.order.slice()
+      : Object.keys((converted && converted.groups) || {});
+    if (codes.length === 0) return Promise.resolve({ migrated: [], already: [] });
+
+    var addedByMe = [];      // 失敗したときに取り消す対象
+    var migrated = [];
+    var already = [];
+
+    function rollback() {
+      return Promise.all(addedByMe.map(function (code) {
+        return ref('users/' + myUid + '/groups/' + code).remove().catch(function () { });
+      }));
+    }
+
+    // 1. 自分の一覧に登録（もともと入っていたものは取り消し対象にしない）
+    function joinAll(i) {
+      if (i >= codes.length) return Promise.resolve();
+      var code = codes[i];
+      var myRef = ref('users/' + myUid + '/groups/' + code);
+      return myRef.once('value').then(function (s) {
+        if (s.exists()) return null;
+        return myRef.set({ joinedAt: FB.now() }).then(function () { addedByMe.push(code); });
+      }).then(function () { return joinAll(i + 1); });
+    }
+
+    // 2〜3. meta を取り合いしてから中身を書く
+    function writeAll(i) {
+      if (i >= codes.length) return Promise.resolve();
+      var code = codes[i];
+      var g = converted.groups[code];
+      return ref('groups/' + code + '/meta').transaction(function (current) {
+        if (current === null) return g.meta;
+        return undefined;      // すでにある → 何もしない（二重移行の防止）
+      }).then(function (res) {
+        if (!res.committed) { already.push(code); return null; }
+        return ref('groups/' + code).update({
+          members: g.members || {},
+          payments: g.payments || {}
+        }).then(function () { migrated.push(code); });
+      }).then(function () { return writeAll(i + 1); });
+    }
+
+    return wrapWrite('取り込みに失敗しました',
+      joinAll(0).then(function () { return writeAll(0); })
+        .then(function () { return { migrated: migrated, already: already }; })
+        .catch(function (err) {
+          return rollback().then(function () { throw err; });
+        }));
   }
 
   // ---- 接続状態 -------------------------------------------------------
@@ -284,6 +418,10 @@
     addPayment: addPayment,
     updatePayment: updatePayment,
     removePayment: removePayment,
+    readRoom: readRoom,
+    allocCodes: allocCodes,
+    migrateRoom: migrateRoom,
+    onWriteError: onWriteError,
     watchConnection: watchConnection
   };
 })(window);

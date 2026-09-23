@@ -23,7 +23,8 @@
 - 工事の終わりに `git push -u origin v2`
 
 ## テスト（C-1 / C-2）
-- 純粋ロジック（按分・残高・清算）は `js/calc.js` に置き、`tests/calc.test.js` を `node tests/calc.test.js` で全通過させる
+- テストは `node tests/run_all.js` で一括実行し、全通過させる（`tests/*.test.js` を自動で拾う）
+- 純粋ロジックは DOM・Firebase に依存しない形で `js/` に置く（按分・残高・清算は `js/calc.js`、旧データの変換は `js/migrate.js`）。新しいテストは `tests/<名前>.test.js` として足せば `run_all` が拾う
 - ロジックに触る前に、現状の挙動を固定するテストを先に書く
 - 直したバグは再現テストを追加してから直す
 
