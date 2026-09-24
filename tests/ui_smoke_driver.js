@@ -764,6 +764,106 @@
         return wait(40);
       })
 
+      // ══ 工事4b-C: 過去の清算の件数制限 ══
+      .then(function () {
+        root.KKStore._seedGroup('MANY01', 'テスト清算たくさん', ['な', 'に']);
+        return root.KKStore.joinGroup('MANY01').then(function () { return wait(80); });
+      })
+      .then(function () {
+        root.selectGroup('MANY01');
+        return wait(80);
+      })
+      .then(function () {
+        // 「支払い 1 件 → 清算」をくり返して清算レコードを増やす
+        var mids = Object.keys(root.KKStore._data.groups.MANY01.members);
+        var parts = {}; mids.forEach(function (m) { parts[m] = true; });
+        var addAndSettle = function (i, memo, offset) {
+          return root.KKStore.addPayment('MANY01', {
+            date: '2026-09-01', memo: memo, payerId: mids[0],
+            amount: 1000 * (i + 1), participants: parts
+          }).then(function () { return wait(40); }).then(function () {
+            var s = root.Settle.buildSettlement(
+              root.Calc.normalizeMembers(root.KKStore._data.groups.MANY01.members),
+              root.KKStore._data.groups.MANY01.payments,
+              { uid: 'u-test', now: Date.now() + offset });
+            return root.KKStore.confirmSettlement('MANY01', s);
+          }).then(function () { return wait(40); });
+        };
+        var step = function (i) {
+          if (i >= 4) return Promise.resolve();
+          return addAndSettle(i, 'テスト清算用' + (i + 1), i * 1000)
+            .then(function () { return step(i + 1); });
+        };
+        return step(0);
+      })
+      .then(function () {
+        root.openSettlement();
+        return wait(80);
+      })
+      .then(function () {
+        check('清算が 4 件できている',
+          Object.keys(root.KKStore._data.groups.MANY01.settlements).length === 4,
+          Object.keys(root.KKStore._data.groups.MANY01.settlements).length + ' 件');
+        check('4 件なら全部出て「もっと見る」は出ない',
+          $('settlementContent').querySelectorAll('.past-settlement').length === 4 &&
+          !$('pastMoreBtn'),
+          $('settlementContent').querySelectorAll('.past-settlement').length + ' 件');
+        root.closeModal('settlementModal');
+
+        // さらに 2 件足して 6 件にする
+        var mids = Object.keys(root.KKStore._data.groups.MANY01.members);
+        var parts = {}; mids.forEach(function (m) { parts[m] = true; });
+        var step = function (i) {
+          if (i >= 2) return Promise.resolve();
+          return root.KKStore.addPayment('MANY01', {
+            date: '2026-09-1' + i, memo: 'テスト追加' + i,
+            payerId: mids[0], amount: 500, participants: parts
+          }).then(function () { return wait(40); }).then(function () {
+            var s = root.Settle.buildSettlement(
+              root.Calc.normalizeMembers(root.KKStore._data.groups.MANY01.members),
+              root.KKStore._data.groups.MANY01.payments,
+              { uid: 'u-test', now: Date.now() + 10000 + i * 1000 });
+            return root.KKStore.confirmSettlement('MANY01', s);
+          }).then(function () { return wait(40); }).then(function () { return step(i + 1); });
+        };
+        return step(0);
+      })
+      .then(function () {
+        root.openSettlement();
+        return wait(80);
+      })
+      .then(function () {
+        check('清算が 6 件になる',
+          Object.keys(root.KKStore._data.groups.MANY01.settlements).length === 6,
+          Object.keys(root.KKStore._data.groups.MANY01.settlements).length + ' 件');
+        check('6 件あると 5 件だけ出る',
+          $('settlementContent').querySelectorAll('.past-settlement').length === 5,
+          $('settlementContent').querySelectorAll('.past-settlement').length + ' 件');
+        check('「もっと見る（残り 1 件）」が出る',
+          !!$('pastMoreBtn') && $('pastMoreBtn').textContent.indexOf('残り 1 件') >= 0,
+          $('pastMoreBtn') ? $('pastMoreBtn').textContent : '(ボタンが無い)');
+        check('折りたたんでいても最新の清算は出る（取り消しボタンがある）',
+          $('settlementContent').textContent.indexOf('この清算を取り消す') >= 0);
+        root.showAllPastSettlements();
+        return wait(60);
+      })
+      .then(function () {
+        check('「もっと見る」を押すと 6 件すべて出る',
+          $('settlementContent').querySelectorAll('.past-settlement').length === 6,
+          $('settlementContent').querySelectorAll('.past-settlement').length + ' 件');
+        check('全件出したらボタンは消える', !$('pastMoreBtn'));
+        root.closeModal('settlementModal');
+        root.openSettlement();
+        return wait(60);
+      })
+      .then(function () {
+        check('開き直すと 5 件に戻る（展開状態は保存しない）',
+          $('settlementContent').querySelectorAll('.past-settlement').length === 5 &&
+          !!$('pastMoreBtn'));
+        root.closeModal('settlementModal');
+        return wait(40);
+      })
+
       .then(function () {
         root.doLogout();
         return wait(120);

@@ -453,6 +453,7 @@
   white-space: nowrap;
 }
 .transfer-row.done .transfer-by { text-decoration: none; }
+.past-more { margin-top: 4px; width: 100%; }
 
 /* ── モバイル ───────────────────────────────── */
 @media (max-width: 640px) {

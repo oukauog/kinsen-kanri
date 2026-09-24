@@ -39,6 +39,8 @@
   var currentGroup = null;    // { meta, members, payments }
   var seenPaymentAt = null;   // ハイライト用 { pid: 最初に見えた時刻 }。null は「初回描画前」
   var FLASH_MS = 1600;        // 新しく入った行を光らせる時間（css の kk-flash と合わせる）
+  var showAllSettlements = false;   // 過去の清算を全件出すか（保存しない。工事4b）
+  var PAST_LIMIT = 5;              // 折りたたみ時に出す件数
   var newMembers = [];        // 新規グループ作成モーダルの作業用
   var editMembers = [];       // グループ設定モーダルの作業用
   var editingPaymentId = null;
@@ -366,6 +368,7 @@
     currentCode = code;
     currentGroup = null;
     seenPaymentAt = null;
+    showAllSettlements = false;   // グループを変えたら過去の清算は 5 件に戻す
     try { localStorage.setItem(LS_LAST_GROUP, code); } catch (e) { /* 使えなくても動く */ }
     closeSidebar();
     render();
@@ -747,6 +750,7 @@
 
   function openSettlement() {
     if (!currentGroup) return;
+    showAllSettlements = false;   // 開くたびに 5 件から（工事4b）
     renderSettlement();
     openModal('settlementModal');
   }
@@ -801,7 +805,10 @@
     if (past.length === 0) {
       html += '<div class="settle-sub">まだ清算の記録はありません。</div>';
     } else {
-      html += past.map(function (s) {
+      // 新しい順なので、折りたたんでも最新の清算（取り消せる 1 件）は必ず出る
+      var shown = showAllSettlements ? past : past.slice(0, PAST_LIMIT);
+      var rest = past.length - shown.length;
+      html += shown.map(function (s) {
         var transfers = Settle.transferList(s);
         var undoable = Settle.canUndo(settlementsOf(currentGroup), s.id);
         return '<div class="past-settlement' + (undoable ? '' : ' old') + '">' +
@@ -835,10 +842,20 @@
               : '<span class="past-note">取り消せるのは最新の清算のみです</span>') +
           '</div></div>';
       }).join('');
+      if (rest > 0) {
+        html += '<button class="btn btn-secondary btn-sm past-more" id="pastMoreBtn" ' +
+          'onclick="showAllPastSettlements()">もっと見る（残り ' + rest + ' 件）</button>';
+      }
     }
     html += '</div>';
 
     $('settlementContent').innerHTML = html;
+  }
+
+  /** 「もっと見る」: 過去の清算を全件出す（保存しないので開き直せば戻る） */
+  function showAllPastSettlements() {
+    showAllSettlements = true;
+    renderSettlement();
   }
 
   /** 「この内容で清算する」 */
@@ -1250,6 +1267,7 @@
   root.doConfirmSettlement = doConfirmSettlement;
   root.toggleTransferDone = toggleTransferDone;
   root.doUndoSettlement = doUndoSettlement;
+  root.showAllPastSettlements = showAllPastSettlements;
   root.setBalanceMode = setBalanceMode;
   root.lockedNotice = lockedNotice;
   root.onPendingToggle = onPendingToggle;
