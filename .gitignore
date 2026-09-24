@@ -1,3 +1,6 @@
 # 確認用に自動生成されるページ（tools/make_uitest.py）
 _uitest_tmp.html
 _diag_tmp.html
+
+# Cowork（相談役）がチャットで渡したファイルが自動保存されるフォルダ。リポジトリには入れない
+Claude outputs/
