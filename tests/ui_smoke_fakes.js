@@ -78,6 +78,11 @@
 
   root.KKStore = {
     _data: data,
+    // 本物の store.js と同じ決め方（displayName → メールの @ 前 → （名前なし））
+    currentUserName: function () {
+      return (USER.displayName || '').trim() ||
+        ((USER.email || '').indexOf('@') > 0 ? USER.email.split('@')[0] : '（名前なし）');
+    },
     localId: function () { return nextId('m'); },
     randomCode: function () { return 'TEST' + (10 + (id++)); },
     saveProfile: function () { return Promise.resolve(); },
@@ -148,7 +153,8 @@
         date: p.date, memo: p.memo || '', payerId: p.payerId,
         amount: pending ? 0 : p.amount,
         participants: p.participants, settlementId: null, pending: pending,
-        createdBy: USER.uid, createdAt: Date.now(), updatedAt: Date.now()
+        createdBy: USER.uid, createdByName: root.KKStore.currentUserName(),
+        createdAt: Date.now(), updatedAt: Date.now()
       };
       notifyGroup(code); return Promise.resolve(pid);
     },
@@ -173,6 +179,7 @@
       var g = data.groups[code];
       g.settlements = g.settlements || {};
       g.settlements[sid] = clone(settlement);
+      g.settlements[sid].createdByName = root.KKStore.currentUserName();
       Object.keys(settlement.paymentIds || {}).forEach(function (pid) {
         if (g.payments[pid]) g.payments[pid].settlementId = sid;
       });
@@ -184,6 +191,7 @@
       t.done = !!done;
       t.doneAt = done ? Date.now() : null;
       t.doneBy = done ? USER.uid : null;
+      t.doneByName = done ? root.KKStore.currentUserName() : null;
       notifyGroup(code);
       return Promise.resolve();
     },
@@ -230,6 +238,18 @@
     // ほかの端末からの変更を模擬する（リアルタイム反映の確認用）
     _remoteAddPayment: function (code, p) {
       return root.KKStore.addPayment(code, p);
+    },
+    // 工事4b 以前に入った支払い（createdByName が無い）を仕込む確認用
+    _seedOldPayment: function (code, p) {
+      var pid = nextId('p');
+      data.groups[code].payments = data.groups[code].payments || {};
+      data.groups[code].payments[pid] = {
+        date: p.date, memo: p.memo, payerId: p.payerId, amount: p.amount,
+        participants: p.participants, settlementId: null, pending: false,
+        createdBy: 'someone-else', createdAt: Date.now(), updatedAt: Date.now()
+      };
+      notifyGroup(code);
+      return pid;
     },
     _setConnected: function (ok) { if (connCb) connCb(ok); },
     _failNextWrite: function () { failNext = true; },

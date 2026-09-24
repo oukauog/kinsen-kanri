@@ -428,6 +428,32 @@
   margin-top: 12px;
 }
 
+/* ── 誰が入力したか・誰がチェックしたか（工事4b）──── */
+.payment-by {
+  font-size: 0.7rem;
+  color: var(--gray-500);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.past-by {
+  font-size: 0.72rem;
+  color: var(--gray-500);
+  max-width: 45%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.transfer-by {
+  font-size: 0.7rem;
+  color: var(--gray-500);
+  margin-left: 8px;
+  white-space: nowrap;
+}
+.transfer-row.done .transfer-by { text-decoration: none; }
+
 /* ── モバイル ───────────────────────────────── */
 @media (max-width: 640px) {
   .user-bar { gap: 6px; flex-shrink: 0; max-width: 60%; }
@@ -443,4 +469,14 @@
   .pay-badge { font-size: 0.6rem; padding: 1px 6px; }
   .transfer-row { font-size: 0.8rem; gap: 7px; }
   .past-settlement { padding: 11px 12px; }
+
+  /* 工事4b: 名前が長くても 1 行に収める */
+  .payment-by { font-size: 0.65rem; }
+  .past-by { font-size: 0.68rem; max-width: 100%; }
+  .transfer-by { font-size: 0.65rem; margin-left: 6px; }
+  .transfer-names {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }

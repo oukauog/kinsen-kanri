@@ -7,10 +7,16 @@
  *   groups/{code}/members/{mid}    : { name, order }
  *   groups/{code}/payments/{pid}   : { date, memo, payerId, amount,
  *                                      participants:{mid:true}, settlementId, pending,
- *                                      createdBy, createdAt, updatedAt }
- *   groups/{code}/settlements/{sid}: { createdAt, createdBy, paymentIds:{pid:true},
+ *                                      createdBy, createdByName, createdAt,
+ *                                      updatedBy?, updatedByName?, updatedAt }
+ *   groups/{code}/settlements/{sid}: { createdAt, createdBy, createdByName,
+ *                                      paymentIds:{pid:true},
  *                                      transfers/{tid}: { from, to, fromName, toName,
- *                                                         amount, done, doneAt?, doneBy? } }
+ *                                                         amount, done, doneAt?, doneBy?,
+ *                                                         doneByName? } }
+ *
+ * ※ 名前つきの項目（…Name）は工事4b から。それ以前のレコードや移行で入ったものには
+ *   無い。無いものは「無いまま」扱う（あとから埋める一括更新はしない）
  *
  * 決めごと:
  *   ・配列は使わない。すべて ID キーのオブジェクト
@@ -54,6 +60,21 @@
     var u = FB && FB.ready ? FB.auth.currentUser : null;
     if (!u) throw new Error('ログインしていません');
     return u.uid;
+  }
+
+  /**
+   * いまログインしている人の表示名。
+   * displayName → メールの @ より前 → 「（名前なし）」の順で決める。
+   * 他人の名前はここでは引かない（ルール上、他人の profile は読めない）。
+   */
+  function currentUserName() {
+    var u = FB && FB.ready ? FB.auth.currentUser : null;
+    if (!u) return '（名前なし）';
+    var n = (u.displayName || '').trim();
+    if (n) return n;
+    var mail = (u.email || '').trim();
+    if (mail && mail.indexOf('@') > 0) return mail.slice(0, mail.indexOf('@'));
+    return '（名前なし）';
   }
 
   function ref(path) { requireReady(); return FB.db.ref(path); }
@@ -307,6 +328,7 @@
       settlementId: null,   // 清算するとここに sid が入る
       pending: pending,     // 金額確認中（残高・清算から外れる）
       createdBy: myUid,
+      createdByName: currentUserName(),   // 書いた時点の表示名（工事4b）
       createdAt: FB.now(),
       updatedAt: FB.now()
       })).then(function () { return pid; });
@@ -327,6 +349,8 @@
           amount: pending ? 0 : p.amount,
           participants: p.participants,
           pending: pending,
+          updatedBy: uid(),                   // 誰が直したか（保存のみ。表示は今回しない）
+          updatedByName: currentUserName(),
           updatedAt: FB.now()
         }));
     });
@@ -355,7 +379,13 @@
   function confirmSettlement(code, settlement) {
     var sid = ref('groups/' + code + '/settlements').push().key;
     var updates = {};
-    updates['settlements/' + sid] = settlement;
+    // settle.js（純粋関数）は名前を知らないので、書き込む直前にここで足す
+    var rec = {};
+    for (var k in settlement) {
+      if (Object.prototype.hasOwnProperty.call(settlement, k)) rec[k] = settlement[k];
+    }
+    rec.createdByName = currentUserName();
+    updates['settlements/' + sid] = rec;
     Object.keys(settlement.paymentIds || {}).forEach(function (pid) {
       updates['payments/' + pid + '/settlementId'] = sid;
     });
@@ -371,7 +401,8 @@
       ref(base).update({
         done: !!done,
         doneAt: done ? FB.now() : null,
-        doneBy: done ? myUid : null
+        doneBy: done ? myUid : null,
+        doneByName: done ? currentUserName() : null
       }));
   }
 
@@ -497,6 +528,7 @@
 
   root.KKStore = {
     randomCode: randomCode,
+    currentUserName: currentUserName,
     localId: localId,
     saveProfile: saveProfile,
     watchMyGroups: watchMyGroups,

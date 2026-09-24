@@ -692,6 +692,78 @@
         return wait(20);
       })
 
+      // ══ 工事4b-B: 誰が入力したか・誰がチェックしたか ══
+      .then(function () {
+        root.KKStore._seedGroup('NAME01', 'テスト入力者', ['さ', 'し']);
+        return root.KKStore.joinGroup('NAME01').then(function () { return wait(80); });
+      })
+      .then(function () {
+        root.selectGroup('NAME01');
+        return wait(80);
+      })
+      .then(function () {
+        root.openPaymentModal();
+        $('payMemo').value = 'テスト新しい支払い';
+        $('payAmount').value = '2000';
+        root.recordPayment();
+        return wait(100);
+      })
+      .then(function () {
+        var row = Array.prototype.filter.call($('main').querySelectorAll('.payment-item'),
+          function (el) { return el.textContent.indexOf('テスト新しい支払い') >= 0; })[0];
+        check('新しい支払いに入力者が出る',
+          !!row && row.textContent.indexOf('入力: テスト太郎') >= 0,
+          row ? row.textContent : '(行が無い)');
+
+        // 工事4b 以前の支払い（createdByName が無い）を仕込む
+        root.KKStore._seedOldPayment('NAME01', {
+          date: '2026-08-01', memo: 'テスト古い支払い',
+          payerId: Object.keys(root.KKStore._data.groups.NAME01.members)[0],
+          amount: 1000,
+          participants: (function () {
+            var o = {};
+            Object.keys(root.KKStore._data.groups.NAME01.members).forEach(function (m) { o[m] = true; });
+            return o;
+          })()
+        });
+        return wait(100);
+      })
+      .then(function () {
+        var oldRow = Array.prototype.filter.call($('main').querySelectorAll('.payment-item'),
+          function (el) { return el.textContent.indexOf('テスト古い支払い') >= 0; })[0];
+        check('名前が無い支払いには「入力:」を出さない',
+          !!oldRow && oldRow.textContent.indexOf('入力:') < 0,
+          oldRow ? oldRow.textContent : '(行が無い)');
+        check('名前が無くても「不明」等の文字を出さない',
+          !!oldRow && oldRow.textContent.indexOf('不明') < 0);
+
+        root.openSettlement();
+        return wait(60);
+      })
+      .then(function () { root.doConfirmSettlement(); return wait(150); })
+      .then(function () {
+        check('過去の清算の見出しに確定した人が出る',
+          $('settlementContent').textContent.indexOf('テスト太郎 が確定') >= 0,
+          $('settlementContent').textContent.slice(0, 160));
+
+        var g = root.KKStore._data.groups.NAME01;
+        var sid = Object.keys(g.settlements)[0];
+        var tid = Object.keys(g.settlements[sid].transfers)[0];
+        check('チェック前はチェック者の表示が出ていない',
+          $('settlementContent').querySelectorAll('.transfer-by').length === 0);
+        root.toggleTransferDone(sid, tid, true);
+        return wait(120);
+      })
+      .then(function () {
+        var by = $('settlementContent').querySelector('.transfer-by');
+        check('送金チェックにチェックした人と日時が出る',
+          !!by && by.textContent.indexOf('テスト太郎') >= 0 &&
+          /\d{2}\/\d{2} \d{2}:\d{2}/.test(by.textContent),
+          by ? by.textContent : '(表示が無い)');
+        root.closeModal('settlementModal');
+        return wait(40);
+      })
+
       .then(function () {
         root.doLogout();
         return wait(120);

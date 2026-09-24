@@ -126,6 +126,14 @@
       ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
+  /** ミリ秒 → 「09/24 18:30」（送金チェックの横に出す短い形） */
+  function shortDateTime(ms) {
+    if (!ms) return '';
+    var d = new Date(ms);
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
   /** 開いているグループの清算レコード（無ければ {}） */
   function settlementsOf(group) {
     return (group && group.settlements) ? group.settlements : {};
@@ -298,6 +306,9 @@
             '<div class="payment-payer">' + esc(p.memo || '支払い') + badge + '</div>' +
             '<div class="payment-memo">' + esc(memberName(members, p.payerId)) + ' が支払い</div>' +
             '<div class="payment-participants">' + esc(partNames) + '</div>' +
+            // 入力者は、名前が保存されている支払いだけ（移行分・工事4b 以前には無い）
+            (p.createdByName
+              ? '<div class="payment-by">入力: ' + esc(p.createdByName) + '</div>' : '') +
           '</div>' +
           '<div class="payment-amounts">' + amountHTML + '</div>' +
           editBtn + delBtn +
@@ -797,14 +808,24 @@
           '<div class="past-head">' +
             '<span class="past-date">' + esc(dateTime(s.createdAt)) + '</span>' +
             '<span class="past-count">対象 ' + Settle.targetCount(s) + ' 件</span>' +
+            // 確定した人は、名前が保存されている清算だけ
+            (s.createdByName
+              ? '<span class="past-by">' + esc(s.createdByName) + ' が確定</span>' : '') +
             (Settle.allDone(s) ? '<span class="past-done-badge">完了</span>' : '') +
           '</div>' +
           transfers.map(function (t) {
+            // チェック済みの印: 名前があれば「✓ 名前 09/24 18:30」、無ければ日時だけ
+            var mark = '';
+            if (t.done) {
+              var who = t.doneByName ? esc(t.doneByName) + ' ' : '';
+              var when = shortDateTime(t.doneAt);
+              if (who || when) mark = '<span class="transfer-by">&#x2713; ' + who + when + '</span>';
+            }
             return '<label class="transfer-row' + (t.done ? ' done' : '') + '">' +
               '<input type="checkbox"' + (t.done ? ' checked' : '') +
               ' onchange="toggleTransferDone(\'' + s.id + '\', \'' + t.id + '\', this.checked)">' +
               '<span class="transfer-names">' + esc(t.fromName || memberName(members, t.from)) +
-              ' → ' + esc(t.toName || memberName(members, t.to)) + '</span>' +
+              ' → ' + esc(t.toName || memberName(members, t.to)) + mark + '</span>' +
               '<span class="transfer-amount">' + money(t.amount) + '</span></label>';
           }).join('') +
           '<div class="past-foot">' +
