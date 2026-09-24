@@ -917,6 +917,70 @@
         });
       })
 
+      // ══ 工事4c-2: 入力欄の寸法が揃っていること ══
+      .then(function () {
+        // 幅を変えて @media を効かせるため、同じページを iframe に読み込んで測る。
+        // ※ iOS 固有の描画差はヘッドレス Chrome では出ない。ここは「崩していない」確認。
+        function rects(width) {
+          return new Promise(function (resolve) {
+            var f = document.createElement('iframe');
+            f.style.cssText = 'position:fixed;left:-9999px;top:0;height:900px;border:0';
+            f.style.width = width + 'px';
+            f.src = location.pathname;
+            f.onload = function () {
+              var d = f.contentDocument;
+              // 支払いモーダルを開いた状態にして測る（非表示だと寸法が 0 になるため）
+              var ov = d.getElementById('paymentModal');
+              if (ov) ov.classList.add('open');
+              var out = {};
+              ['payDate', 'payMemo', 'payAmount', 'payPayer'].forEach(function (id) {
+                var el = d.getElementById(id);
+                var r = el ? el.getBoundingClientRect() : null;
+                out[id] = r ? { h: Math.round(r.height * 10) / 10, w: Math.round(r.width * 10) / 10 }
+                  : null;
+              });
+              f.remove();
+              resolve(out);
+            };
+            document.body.appendChild(f);
+          });
+        }
+        var near = function (a, b) { return Math.abs(a - b) <= 1; };
+
+        return rects(390).then(function (m) {
+          var ids = ['payDate', 'payMemo', 'payAmount', 'payPayer'];
+          var missing = ids.filter(function (id) { return !m[id]; });
+          check('スマホ幅: 4 つの入力欄が測れる', missing.length === 0, missing.join(','));
+          if (missing.length) return rects(1024);
+
+          var hs = ids.map(function (id) { return m[id].h; });
+          var ws = ids.map(function (id) { return m[id].w; });
+          var desc = ids.map(function (id) {
+            return id + '=' + m[id].h + 'x' + m[id].w;
+          }).join(' / ');
+
+          check('スマホ幅: 日付欄の高さが他の欄と揃う（4 欄が同じ高さ）',
+            hs.every(function (h) { return near(h, hs[0]); }), desc);
+          check('スマホ幅: 4 欄の幅が揃う',
+            ws.every(function (w) { return near(w, ws[0]); }), desc);
+          check('スマホ幅: 高さが 40px になっている', near(hs[0], 40), '高さ=' + hs[0]);
+          return rects(1024);
+        }).then(function (m) {
+          if (!m.payDate || !m.payMemo) {
+            check('PC 幅: 日付欄とメモ欄の高さが等しい', false, '測れなかった');
+            return;
+          }
+          // Chrome は PC 幅でも日付欄を数 px 高く描く（工事4c-2 の前からそう）。
+          // 今回の規則は @media (max-width: 640px) の中だけなので PC には届かない。
+          // 「揃っていること」ではなく「前と同じままか」を見る。
+          check('PC 幅: 日付欄は Chrome 既定のまま（スマホ用の高さ指定が漏れていない）',
+            m.payDate.h > m.payMemo.h,
+            'date=' + m.payDate.h + ' / memo=' + m.payMemo.h);
+          check('PC 幅: 高さを 40px に固定していない（PC は従来のまま）',
+            !near(m.payDate.h, 40), '高さ=' + m.payDate.h);
+        });
+      })
+
       .then(function () {
         root.doLogout();
         return wait(120);

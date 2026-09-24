@@ -493,4 +493,37 @@
   input.member-row-input {
     font-size: 16px;
   }
+
+  /* 工事4c-2: 入力欄の高さを明示して揃える。
+     iOS Safari は input[type="date"] を独自の内部部品で描くため、
+     文字サイズ + padding から高さ・幅を素直に計算せず、日付欄だけ伸びていた。
+     16px の文字 + 上下 padding 9px + 枠 1px を見込んで 40px に統一する
+     （box-sizing: border-box が * で効いているので、これが外寸になる）。
+     padding・border・角丸・色は変えない。 */
+  input.form-input,
+  select.form-input,
+  input.member-row-input {
+    height: 40px;
+  }
+
+  /* textarea は複数行なので高さを固定しない（現在このアプリには無い。将来用の保険）*/
+  textarea.form-input {
+    min-height: 40px;
+  }
+
+  /* 日付欄だけ iOS の独自描画を抑える。
+     appearance を切って、幅と行の高さを他の欄と同じ土俵に乗せる。 */
+  input[type="date"].form-input {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    line-height: normal;
+  }
+
+  /* iOS で日付の値が中央寄せになる既知の癖への対処（左寄せに揃える）*/
+  input[type="date"].form-input::-webkit-date-and-time-value {
+    text-align: left;
+  }
 }
