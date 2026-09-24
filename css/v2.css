@@ -480,4 +480,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* 工事4c: iOS Safari の自動ズーム対策。
+     入力欄の文字が 16px 未満だとフォーカス時に画面が拡大され、
+     body が position: fixed のため戻せなくなる。スマホ幅では 16px にする。
+     index.html の .form-input（0.9rem）に勝たせるため、
+     要素名 + クラス（詳細度 0,1,1）で指定する（!important は使わない）。
+     padding は変えないので、欄の高さがわずかに増えるだけ。 */
+  input.form-input,
+  select.form-input,
+  textarea.form-input,
+  input.member-row-input {
+    font-size: 16px;
+  }
 }

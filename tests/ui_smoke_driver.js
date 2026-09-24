@@ -864,6 +864,59 @@
         return wait(40);
       })
 
+      // ══ 工事4c: スマホ幅で入力欄が 16px（iOS の自動ズーム対策）══
+      .then(function () {
+        // 幅を変えて @media を効かせるため、同じページを iframe に読み込んで測る
+        function measure(width) {
+          return new Promise(function (resolve) {
+            var f = document.createElement('iframe');
+            f.style.cssText = 'position:fixed;left:-9999px;top:0;height:800px;border:0';
+            f.style.width = width + 'px';
+            f.src = location.pathname;
+            f.onload = function () {
+              var d = f.contentDocument;
+              var w = f.contentWindow;
+              var size = function (sel) {
+                var el = d.querySelector(sel);
+                return el ? w.getComputedStyle(el).fontSize : '(要素が無い)';
+              };
+              var out = {
+                date: size('#payDate'),
+                memo: size('#payMemo'),
+                amount: size('#payAmount'),
+                payer: size('#payPayer'),
+                groupName: size('#newGroupName')
+              };
+              // メンバー名の入力欄は ui.js が作るので、同じ形の要素を差し込んで測る
+              var row = d.createElement('div');
+              row.className = 'member-row';
+              row.innerHTML = '<input class="form-input member-row-input" value="x">';
+              (d.querySelector('#editMemberList') || d.body).appendChild(row);
+              out.memberRow = w.getComputedStyle(row.querySelector('input')).fontSize;
+              f.remove();
+              resolve(out);
+            };
+            document.body.appendChild(f);
+          });
+        }
+
+        return measure(390).then(function (m) {
+          check('スマホ幅: 日付の入力欄が 16px', m.date === '16px', m.date);
+          check('スマホ幅: メモの入力欄が 16px', m.memo === '16px', m.memo);
+          check('スマホ幅: 金額の入力欄が 16px', m.amount === '16px', m.amount);
+          check('スマホ幅: 支払った人の select が 16px', m.payer === '16px', m.payer);
+          check('スマホ幅: グループ名の入力欄も 16px', m.groupName === '16px', m.groupName);
+          check('スマホ幅: メンバー名の入力欄が 16px', m.memberRow === '16px', m.memberRow);
+          return measure(1024);
+        }).then(function (m) {
+          check('PC 幅: 入力欄は 14.4px のまま（見た目を変えない）',
+            m.date === '14.4px' && m.memo === '14.4px' && m.amount === '14.4px',
+            m.date + ' / ' + m.memo + ' / ' + m.amount);
+          check('PC 幅: メンバー名の入力欄も変えていない',
+            m.memberRow === '14.08px', m.memberRow);
+        });
+      })
+
       .then(function () {
         root.doLogout();
         return wait(120);
