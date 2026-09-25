@@ -760,6 +760,28 @@
           !!by && by.textContent.indexOf('テスト太郎') >= 0 &&
           /\d{2}\/\d{2} \d{2}:\d{2}/.test(by.textContent),
           by ? by.textContent : '(表示が無い)');
+
+        // 工事4d-A: 打ち消し線は「A → B」だけ。「✓ 名前 日時」には付けない
+        var row = by ? by.closest('.transfer-row') : null;
+        var pair = row ? row.querySelector('.transfer-pair') : null;
+        var names = row ? row.querySelector('.transfer-names') : null;
+        var deco = function (el) { return getComputedStyle(el).textDecorationLine; };
+        check('チェック済みの行: 「A → B」（.transfer-pair）に打ち消し線が付く',
+          !!pair && deco(pair).indexOf('line-through') >= 0,
+          pair ? deco(pair) : '(.transfer-pair が無い)');
+        check('チェック済みの行: .transfer-by 自身には打ち消し線が付かない',
+          !!by && deco(by).indexOf('line-through') < 0, by ? deco(by) : '');
+        check('チェック済みの行: .transfer-by は .transfer-pair の外（.transfer-names の直下、後ろ）にある',
+          !!by && !!pair && !!names && !by.closest('.transfer-pair') &&
+          by.parentNode === names && pair.parentNode === names &&
+          !!(pair.compareDocumentPosition(by) & Node.DOCUMENT_POSITION_FOLLOWING),
+          by && by.parentNode ? by.parentNode.className : '');
+        var lined = [];
+        for (var el = by ? by.parentElement : null; el && el !== row.parentElement; el = el.parentElement) {
+          if (deco(el).indexOf('line-through') >= 0) lined.push(el.className);
+        }
+        check('チェック済みの行: .transfer-by の祖先（行まで）に打ち消し線が無い（線が伝わらない）',
+          !!by && lined.length === 0, lined.join(','));
         root.closeModal('settlementModal');
         return wait(40);
       })

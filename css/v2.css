@@ -377,7 +377,9 @@
   border-top: 1px solid var(--gray-100);
 }
 .transfer-row input { width: 17px; height: 17px; flex-shrink: 0; cursor: pointer; }
-.transfer-row.done .transfer-names { text-decoration: line-through; color: var(--gray-500); }
+.transfer-row.done .transfer-names { color: var(--gray-500); }
+/* 工事4d: 線は「A → B」だけ。祖先に付けた線は子の .transfer-by にも引かれて消せないため */
+.transfer-row.done .transfer-pair { text-decoration: line-through; }
 .transfer-names { flex: 1; min-width: 0; }
 .transfer-amount { font-weight: 700; flex-shrink: 0; }
 .past-foot { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -452,7 +454,6 @@
   margin-left: 8px;
   white-space: nowrap;
 }
-.transfer-row.done .transfer-by { text-decoration: none; }
 .past-more { margin-top: 4px; width: 100%; }
 
 /* ── モバイル ───────────────────────────────── */

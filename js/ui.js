@@ -831,8 +831,10 @@
             return '<label class="transfer-row' + (t.done ? ' done' : '') + '">' +
               '<input type="checkbox"' + (t.done ? ' checked' : '') +
               ' onchange="toggleTransferDone(\'' + s.id + '\', \'' + t.id + '\', this.checked)">' +
-              '<span class="transfer-names">' + esc(t.fromName || memberName(members, t.from)) +
-              ' → ' + esc(t.toName || memberName(members, t.to)) + mark + '</span>' +
+              // 打ち消し線は「A → B」（.transfer-pair）だけに付ける。印（.transfer-by）はその外に置く
+              '<span class="transfer-names"><span class="transfer-pair">' +
+              esc(t.fromName || memberName(members, t.from)) +
+              ' → ' + esc(t.toName || memberName(members, t.to)) + '</span>' + mark + '</span>' +
               '<span class="transfer-amount">' + money(t.amount) + '</span></label>';
           }).join('') +
           '<div class="past-foot">' +
