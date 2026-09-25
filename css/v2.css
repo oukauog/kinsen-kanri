@@ -475,8 +475,18 @@
   /* 工事4b: 名前が長くても 1 行に収める */
   .payment-by { font-size: 0.65rem; }
   .past-by { font-size: 0.68rem; max-width: 100%; }
-  .transfer-by { font-size: 0.65rem; margin-left: 6px; }
-  .transfer-names {
+  /* 工事4d: 「✓ 名前 日時」は名前の下の行に置く（1 行に詰め込まない）。
+     名前（.transfer-pair）は 1 行に収め、長ければ … で省略する */
+  .transfer-by {
+    display: block;
+    margin-left: 0;
+    font-size: 0.65rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .transfer-names { overflow: hidden; }
+  .transfer-pair {
+    display: block;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
