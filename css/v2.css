@@ -126,6 +126,30 @@
   cursor: default;
 }
 .group-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* 工事5: 並べ替えのつまみ（行の右端。ここだけでドラッグする）*/
+.group-item { display: flex; align-items: center; }
+.group-item-handle {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 28px;
+  /* 行の上下と右の padding（11px 16px）を打ち消して、行いっぱいの高さにする */
+  margin: -11px -16px -11px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-300);
+  font-size: 0.8rem;
+  letter-spacing: -0.2em;
+  cursor: grab;
+  touch-action: none;           /* これが無いと iOS で指を動かした瞬間にスクロールに取られる */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.group-item-handle:hover { color: var(--gray-500); }
+.group-item-handle:active { cursor: grabbing; }
+.group-item-ghost { opacity: 0.4; }
 .group-item-x {
   background: none; border: none; cursor: pointer;
   color: var(--gray-300); font-size: 0.9rem; padding: 2px 4px;

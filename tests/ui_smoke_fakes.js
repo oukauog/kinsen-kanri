@@ -17,6 +17,20 @@
   var failNext = false;           // 次の書き込みをわざと失敗させる
   var watchers = { myGroups: null, group: {}, meta: {} };
   var USER = { uid: 'u-test', displayName: 'テスト太郎', photoURL: '', email: 't@example.com' };
+  var writes = [];                // 工事5: users/{uid}/groups への書き込みの記録
+
+  // 本物の store.js の myGroupEntry と同じ: order は数値のときだけ入れる
+  function myGroupEntry(order) {
+    var entry = { joinedAt: Date.now() };
+    if (typeof order === 'number' && isFinite(order)) entry.order = order;
+    return entry;
+  }
+  function setMyGroup(code, order) {
+    var entry = myGroupEntry(order);
+    data.users[USER.uid] = data.users[USER.uid] || { groups: {} };
+    data.users[USER.uid].groups[code] = entry;
+    writes.push({ op: 'set', path: 'users/' + USER.uid + '/groups/' + code, value: clone(entry) });
+  }
 
   function clone(o) { return JSON.parse(JSON.stringify(o == null ? null : o)); }
   function later(fn) { setTimeout(fn, 0); }
@@ -78,6 +92,7 @@
 
   root.KKStore = {
     _data: data,
+    _writes: writes,
     // 本物の store.js と同じ決め方（displayName → メールの @ 前 → （名前なし））
     currentUserName: function () {
       return (USER.displayName || '').trim() ||
@@ -100,23 +115,41 @@
       var g = data.groups[code];
       return Promise.resolve(g && g.meta ? clone(g.meta) : null);
     },
-    createGroup: function (name, names) {
+    createGroup: function (name, names, order) {
       var code = this.randomCode();
       var members = {};
       names.forEach(function (n, i) { members[nextId('m')] = { name: n, order: i }; });
       data.groups[code] = { meta: { name: name, createdAt: Date.now(), createdBy: USER.uid, schemaVersion: 2 }, members: members };
-      data.users[USER.uid] = data.users[USER.uid] || { groups: {} };
-      data.users[USER.uid].groups[code] = { joinedAt: Date.now() };
+      setMyGroup(code, order);
       notifyMyGroups(); notifyGroup(code);
       return Promise.resolve(code);
     },
-    joinGroup: function (code) {
+    joinGroup: function (code, order) {
       var g = data.groups[code];
       if (!g) return Promise.reject(new Error('見つかりません'));
-      data.users[USER.uid] = data.users[USER.uid] || { groups: {} };
-      data.users[USER.uid].groups[code] = { joinedAt: Date.now() };
+      setMyGroup(code, order);
       notifyMyGroups();
       return Promise.resolve(clone(g.meta));
+    },
+    // 本物と同じく users/{uid}/groups への 1 回の update（キー '<code>/order'）。joinedAt には触れない
+    setGroupOrder: function (codes) {
+      var patch = {};
+      (codes || []).forEach(function (code, i) { patch[code + '/order'] = i; });
+      if (Object.keys(patch).length === 0) return Promise.resolve();
+      writes.push({ op: 'update', path: 'users/' + USER.uid + '/groups', value: clone(patch) });
+      data.users[USER.uid] = data.users[USER.uid] || { groups: {} };
+      var groups = data.users[USER.uid].groups;
+      (codes || []).forEach(function (code, i) {
+        groups[code] = groups[code] || {};     // Firebase の複数パス update と同じく、無ければ作られる
+        groups[code].order = i;
+      });
+      notifyMyGroups();
+      return Promise.resolve();
+    },
+    _seedMyGroup: function (code, entry) {
+      data.users[USER.uid] = data.users[USER.uid] || { groups: {} };
+      data.users[USER.uid].groups[code] = clone(entry);
+      notifyMyGroups();
     },
     leaveGroup: function (code) {
       if (data.users[USER.uid]) delete data.users[USER.uid].groups[code];

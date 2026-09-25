@@ -28,6 +28,8 @@ CUTS = [
     '<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>\n',
     '<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>\n',
     '<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>\n',
+    # 工事5: SortableJS も外す（CDN が読めないときに一覧が今までどおり動くことを確かめる）
+    '<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>\n',
     '<script src="js/firebase-init.js"></script>\n',
     '<script src="js/store.js"></script>\n',
     '<script src="js/auth.js"></script>\n',

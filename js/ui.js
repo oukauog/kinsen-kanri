@@ -18,6 +18,7 @@
   var Settle = root.Settle;
   var Csv = root.Csv;
   var Env = root.Env;
+  var GroupOrder = root.KKGroupOrder;
 
   var LS_LAST_GROUP = 'kk_v2_lastGroup';   // v2 が使う localStorage は kk_v2_* のみ
   var LS_BALANCE_MODE = 'kk_v2_balanceMode';
@@ -32,7 +33,8 @@
   // ---- 状態 -----------------------------------------------------------
 
   var me = null;              // Firebase の user
-  var myGroups = {};          // { code: { joinedAt } }
+  var myGroups = {};          // { code: { joinedAt, order? } }
+  var groupOrderAttached = false;   // サイドバーの並べ替えを付けたか（1 回だけ）
   var metas = {};             // { code: meta | null }   ← null は「消えたグループ」
   var metaOff = {};           // { code: 監視を外す関数 }
   var currentCode = null;     // 開いているグループの共有コード
@@ -188,12 +190,9 @@
 
   // ---- サイドバー -----------------------------------------------------
 
+  /** 表示順（order → 無ければ joinedAt、同点はコード順。js/group_order.js）*/
   function sortedCodes() {
-    return Object.keys(myGroups).sort(function (a, b) {
-      var na = metas[a] && metas[a].name ? metas[a].name : '';
-      var nb = metas[b] && metas[b].name ? metas[b].name : '';
-      return na.localeCompare(nb, 'ja') || a.localeCompare(b);
-    });
+    return GroupOrder.sortCodes(myGroups);
   }
 
   function renderSidebar() {
@@ -207,15 +206,27 @@
       var meta = metas[code];
       if (meta === null) {
         // グループ本体が消えている（他の人が削除した、またはコードが間違っていた）
-        return '<div class="group-item missing">' +
+        // つまみは付けない（自分では動かせない）が、並びの中には残す
+        return '<div class="group-item missing" data-code="' + code + '">' +
           '<span class="group-item-name">（削除されたグループ）</span>' +
           '<button class="group-item-x" title="一覧から消す" ' +
           'onclick="dismissMissingGroup(\'' + code + '\')">&#x2715;</button></div>';
       }
       var name = meta && meta.name ? meta.name : '読み込み中…';
+      // 右端のつまみ（⋮⋮）でだけ並べ替える。つまみを押しても selectGroup は起こさない
       return '<div class="group-item' + (code === currentCode ? ' active' : '') + '" ' +
-        'onclick="selectGroup(\'' + code + '\')">' + esc(name) + '</div>';
+        'data-code="' + code + '" onclick="selectGroup(\'' + code + '\')">' +
+        '<span class="group-item-name">' + esc(name) + '</span>' +
+        '<span class="group-item-handle" title="ドラッグで並べ替え" ' +
+        'onclick="event.stopPropagation()">&#x22EE;&#x22EE;</span></div>';
     }).join('');
+  }
+
+  /** つまみのドラッグ＆ドロップで並びが確定したら、その順で order = 0..n-1 を書く */
+  function saveGroupOrder(codes) {
+    // 描画とドロップの間に一覧から消えたコードに order だけ書かないよう、今の一覧にあるものに絞る
+    var list = codes.filter(function (c) { return !!myGroups[c]; });
+    Store.setGroupOrder(list).catch(fail('グループの並び順を保存できませんでした'));
   }
 
   // ---- メイン画面 -----------------------------------------------------
@@ -464,7 +475,7 @@
     var name = $('newGroupName').value.trim();
     if (!name) { alert('グループ名を入力してください'); return; }
     if (newMembers.length < 2) { alert('メンバーを2人以上追加してください'); return; }
-    Store.createGroup(name, newMembers).then(function (code) {
+    Store.createGroup(name, newMembers, GroupOrder.nextOrder(myGroups)).then(function (code) {
       closeModal('newGroupModal');
       toast('グループを作成しました（共有コード ' + code + '）');
       selectGroup(code);
@@ -495,7 +506,7 @@
           fb.textContent = '';
           return;
         }
-        return Store.joinGroup(code).then(function () {
+        return Store.joinGroup(code, GroupOrder.nextOrder(myGroups)).then(function () {
           closeModal('joinGroupModal');
           toast('「' + (meta.name || '') + '」に参加しました');
           selectGroup(code);
@@ -1218,6 +1229,11 @@
         myGroups = groups;
         syncMetaWatchers();
         renderSidebar();
+        // 並べ替え（SortableJS）は #groupList に 1 回付ければ、描き直しても効き続ける
+        if (!groupOrderAttached) {
+          groupOrderAttached = true;
+          GroupOrder.attach($('groupList'), saveGroupOrder);
+        }
         // 前回開いていたグループを復元する
         if (!currentCode) {
           var last = null;
