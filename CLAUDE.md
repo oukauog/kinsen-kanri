@@ -27,6 +27,7 @@
 - 純粋ロジックは DOM・Firebase に依存しない形で `js/` に置く（按分・残高・清算は `js/calc.js`、旧データの変換は `js/migrate.js`）。新しいテストは `tests/<名前>.test.js` として足せば `run_all` が拾う
 - ロジックに触る前に、現状の挙動を固定するテストを先に書く
 - 直したバグは再現テストを追加してから直す
+- 画面の通し確認（ヘッドレス Chrome）は毎回新しい一時フォルダを --user-data-dir に指定して起動する（同じプロファイルだと http.server から配った古い js がキャッシュされる）
 
 ## この PC の環境（2026-09-23 工事1 で判明）
 - Python は `py -X utf8 …` で呼ぶ（`python` は Microsoft Store のダミーで動かない）。Node.js は v24 導入済み
