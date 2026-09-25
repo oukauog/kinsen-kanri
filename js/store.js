@@ -2,7 +2,7 @@
  * store.js — Realtime Database への読み書き（仕様書 §3 のデータモデル）
  *
  *   users/{uid}/profile            : { displayName, photoURL, updatedAt }
- *   users/{uid}/groups/{code}      : { joinedAt }            ← 左サイドバーの元
+ *   users/{uid}/groups/{code}      : { joinedAt, order? }    ← 左サイドバーの元
  *   groups/{code}/meta             : { name, createdAt, createdBy, schemaVersion }
  *   groups/{code}/members/{mid}    : { name, order }
  *   groups/{code}/payments/{pid}   : { date, memo, payerId, amount,
@@ -14,6 +14,12 @@
  *                                      transfers/{tid}: { from, to, fromName, toName,
  *                                                         amount, done, doneAt?, doneBy?,
  *                                                         doneByName? } }
+ *
+ * ※ order（サイドバーの並び順、工事5）は本人だけの好み。表示順のキーは
+ *   「order が数値なら order、無ければ joinedAt（それも無ければ 0）」の昇順、同点はコード順
+ *   （js/group_order.js）。新規作成・コード参加は「今の表示順キーの最大 + 1」で一番下に入る。
+ *   ドラッグ＆ドロップで並べ替えたら、その順で 0..n-1 を書き直す（setGroupOrder）。
+ *   order の無い既存グループはバックフィルしない。groups/{code} 側には書かない。ルールは変更なし
  *
  * ※ 名前つきの項目（…Name）は工事4b から。それ以前のレコードや移行で入ったものには
  *   無い。無いものは「無いまま」扱う（あとから埋める一括更新はしない）
@@ -124,7 +130,7 @@
   var myGroupsCb = null;
 
   /**
-   * users/{uid}/groups を監視する。cb には { code: {joinedAt} } が渡る。
+   * users/{uid}/groups を監視する。cb には { code: {joinedAt, order?} } が渡る。
    * 監視は 1 本だけ。呼び直すと前の監視は外れる。
    */
   function watchMyGroups(cb, onError) {
@@ -194,9 +200,10 @@
    * グループを作る。
    * @param {string} name グループ名
    * @param {string[]} memberNames メンバー名（2 人以上）
+   * @param {number} [order] サイドバーの並び順（ui.js が KKGroupOrder.nextOrder で決める）
    * @returns {Promise<string>} 共有コード
    */
-  function createGroup(name, memberNames) {
+  function createGroup(name, memberNames, order) {
     var myUid = uid();
     return findFreeCode().then(function (code) {
       var members = {};
@@ -205,7 +212,7 @@
       });
       // ルールが「自分の一覧に入っていること」を要求するので、先に自分を登録する
       return wrapWrite('グループを作成できませんでした',
-        ref('users/' + myUid + '/groups/' + code).set({ joinedAt: FB.now() })
+        ref('users/' + myUid + '/groups/' + code).set(myGroupEntry(order))
         .then(function () {
           return ref('groups/' + code).update({
             meta: {
@@ -223,16 +230,38 @@
 
   /**
    * 共有コードで参加する。meta が無ければ何もせずエラー。
+   * @param {number} [order] サイドバーの並び順（ui.js が KKGroupOrder.nextOrder で決める）
    * @returns {Promise<Object>} meta
    */
-  function joinGroup(code) {
+  function joinGroup(code, order) {
     var myUid = uid();
     return readMeta(code).then(function (meta) {
       if (!meta) throw new Error('そのコードのグループは見つかりませんでした');
       return wrapWrite('グループに参加できませんでした',
-        ref('users/' + myUid + '/groups/' + code).set({ joinedAt: FB.now() }))
+        ref('users/' + myUid + '/groups/' + code).set(myGroupEntry(order)))
         .then(function () { return meta; });
     });
+  }
+
+  /** users/{uid}/groups/{code} に書く中身。order は数値のときだけ入れる */
+  function myGroupEntry(order) {
+    var entry = { joinedAt: FB.now() };
+    if (typeof order === 'number' && isFinite(order)) entry.order = order;
+    return entry;
+  }
+
+  /**
+   * サイドバーの並び順を書く（ドラッグ＆ドロップで並びが確定したとき）。
+   * codes の順に order = 0, 1, 2, … を、users/{uid}/groups への 1 回の update で書く。
+   * joinedAt には触れない。groups/{code} 側には何も書かない。
+   * @param {string[]} codes 表示順のコード
+   */
+  function setGroupOrder(codes) {
+    var patch = {};
+    (codes || []).forEach(function (code, i) { patch[code + '/order'] = i; });
+    if (Object.keys(patch).length === 0) return Promise.resolve();
+    return wrapWrite('グループの並び順を保存できませんでした',
+      ref('users/' + uid() + '/groups').update(patch));
   }
 
   /** 自分の一覧から外すだけ。グループのデータは残る */
@@ -539,6 +568,7 @@
     watchMeta: watchMeta,
     createGroup: createGroup,
     joinGroup: joinGroup,
+    setGroupOrder: setGroupOrder,
     leaveGroup: leaveGroup,
     deleteGroup: deleteGroup,
     setGroupName: setGroupName,
